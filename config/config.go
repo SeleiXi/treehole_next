@@ -36,6 +36,10 @@ var Config struct {
 	HolePurgeDivisions []int    `env:"HOLE_PURGE_DIVISIONS" envDefault:"2"`
 	HolePurgeDays      int      `env:"HOLE_PURGE_DAYS" envDefault:"30"`
 	OpenSensitiveCheck bool     `env:"OPEN_SENSITIVE_CHECK" envDefault:"true"`
+	EnableTestLogin    bool     `env:"ENABLE_TEST_LOGIN" envDefault:"false"`
+	TestLoginUserID    int      `env:"TEST_LOGIN_USER_ID" envDefault:"1000001"`
+	TestAccessToken    string   `env:"TEST_ACCESS_TOKEN" envDefault:"treehole-test-access"`
+	TestRefreshToken   string   `env:"TEST_REFRESH_TOKEN" envDefault:"treehole-test-refresh"`
 
 	YiDunBusinessIdText          string   `env:"YI_DUN_BUSINESS_ID_TEXT" envDefault:""`
 	YiDunBusinessIdImage         string   `env:"YI_DUN_BUSINESS_ID_IMAGE" envDefault:""`
