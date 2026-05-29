@@ -11,7 +11,7 @@ import (
 
 type ShowHomePageModel struct {
 	ExcludeDivisionIDs *[]int             `json:"exclude_division_ids" query:"exclude_division_ids" validate:"omitempty"` // default is all
-	Size0              int                `json:"length" query:"size" default:"10" validate:"max=10"`
+	Size0              int                `json:"length" query:"length" validate:"max=10"`
 	Size               int                `json:"size" query:"size" default:"10" validate:"max=10"`
 	Offset0            common.CustomTime  `json:"start_time" query:"offset" swaggertype:"string"` // updated time < offset (default is now)
 	Offset             common.CustomTime  `json:"offset" query:"offset" swaggertype:"string"`
@@ -43,7 +43,7 @@ func (q *QueryTime) SetDefaults() {
 type ListOldModel struct {
 	Offset0      common.CustomTime  `json:"start_time" query:"start_time" swaggertype:"string"`
 	Offset       common.CustomTime  `json:"offset" query:"offset" swaggertype:"string"`
-	Size0        int                `json:"length" query:"length" default:"10" validate:"max=10"`
+	Size0        int                `json:"length" query:"length" validate:"max=10"`
 	Size         int                `json:"size" query:"size" default:"10" validate:"max=10" `
 	Tag          string             `json:"tag" query:"tag"`
 	Tags         []string           `json:"tags" query:"tags"`
@@ -57,8 +57,10 @@ type ListOldModel struct {
 }
 
 func (q *ListOldModel) SetDefaults() {
-	if q.Size == 0 {
+	if q.Size0 != 0 {
 		q.Size = q.Size0
+	} else if q.Size == 0 {
+		q.Size = 10
 	}
 	if q.Offset.IsZero() {
 		if q.Offset0.IsZero() {

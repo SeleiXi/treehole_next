@@ -40,6 +40,7 @@ func TestListHolesByScoreSort(t *testing.T) {
 		"length":        3,
 	})
 	assert.NotEmpty(t, holes)
+	assert.Len(t, holes, 3)
 	assert.Equal(t, 11, holes[0].ID)
 	assert.NotNil(t, holes[0].SortScore)
 
@@ -51,7 +52,17 @@ func TestListHolesByScoreSort(t *testing.T) {
 		"cursor_id":     holes[0].ID,
 	})
 	assert.NotEmpty(t, nextPage)
+	assert.Len(t, nextPage, 3)
 	assert.NotEqual(t, holes[0].ID, nextPage[0].ID)
+
+	var recommended Holes
+	testAPIModelWithQuery(t, "get", "/api/holes", 200, &recommended, Map{
+		"sort_strategy": "recommend",
+		"length":        3,
+	})
+	assert.NotEmpty(t, recommended)
+	assert.Len(t, recommended, 3)
+	assert.NotNil(t, recommended[0].SortScore)
 }
 
 func TestListHolesByTag(t *testing.T) {

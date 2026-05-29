@@ -46,8 +46,10 @@ func ListHomePage(c *fiber.Ctx) (err error) {
 		return err
 	}
 
-	if query.Size == 0 {
+	if query.Size0 != 0 {
 		query.Size = query.Size0
+	} else if query.Size == 0 {
+		query.Size = 10
 	}
 	// Offset 默认用 Offset0，再兜底当前时间
 	if query.Offset.IsZero() {
