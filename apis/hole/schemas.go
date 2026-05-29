@@ -17,11 +17,13 @@ type ShowHomePageModel struct {
 	Offset             common.CustomTime  `json:"offset" query:"offset" swaggertype:"string"`
 	Tags               []string           `json:"tags" query:"tags"`
 	Order              string             `json:"order" query:"order"`
+	FeedMode           string             `json:"feed_mode" query:"feed_mode"`
 	SortStrategy       string             `json:"sort_strategy" query:"sort_strategy"`
 	CursorScore        *float64           `json:"cursor_score" query:"cursor_score"`
 	CursorID           *int               `json:"cursor_id" query:"cursor_id"`
 	CreatedStart       *common.CustomTime `json:"created_start" query:"created_start" swaggertype:"string"`
 	CreatedEnd         *common.CustomTime `json:"created_end" query:"created_end" swaggertype:"string"`
+	RequestID          string             `json:"request_id" query:"request_id"`
 }
 
 type QueryTime struct {

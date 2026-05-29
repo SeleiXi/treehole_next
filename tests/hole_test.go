@@ -65,6 +65,23 @@ func TestListHolesByScoreSort(t *testing.T) {
 	assert.NotNil(t, recommended[0].SortScore)
 }
 
+func TestListHomePageRecommendFeed(t *testing.T) {
+	var holes Holes
+	testAPIModelWithQuery(t, "get", "/api/holes/_homepage", 200, &holes, Map{
+		"order":      "recommend",
+		"length":     5,
+		"request_id": "test-feed-request",
+	})
+	assert.NotEmpty(t, holes)
+	assert.LessOrEqual(t, len(holes), 5)
+	assert.NotNil(t, holes[0].SortScore)
+
+	var events []FeedEvent
+	err := DB.Where("request_id = ?", "test-feed-request").Find(&events).Error
+	assert.Nil(t, err)
+	assert.Len(t, events, len(holes))
+}
+
 func TestListHolesByTag(t *testing.T) {
 	var tag Tag
 	DB.Where("name = ?", "114").First(&tag)

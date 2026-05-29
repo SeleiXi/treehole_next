@@ -14,6 +14,7 @@ import (
 	"time"
 	"treehole_next/apis/message"
 	"treehole_next/config"
+	"treehole_next/services/feed"
 	"treehole_next/utils/sensitive"
 
 	"github.com/gofiber/fiber/v2"
@@ -58,6 +59,27 @@ func ListHomePage(c *fiber.Ctx) (err error) {
 		} else {
 			query.Offset = query.Offset0
 		}
+	}
+
+	if feed.ShouldUseRecommend(query.FeedMode, query.Order, query.SortStrategy) {
+		holes, err := feed.GetHomeFeed(c, feed.HomeFeedRequest{
+			ExcludeDivisionIDs: query.ExcludeDivisionIDs,
+			Size:               query.Size,
+			Offset:             query.Offset,
+			Tags:               query.Tags,
+			Order:              query.Order,
+			FeedMode:           query.FeedMode,
+			SortStrategy:       query.SortStrategy,
+			CursorScore:        query.CursorScore,
+			CursorID:           query.CursorID,
+			CreatedStart:       query.CreatedStart,
+			CreatedEnd:         query.CreatedEnd,
+			RequestID:          query.RequestID,
+		})
+		if err != nil {
+			return err
+		}
+		return Serialize(c, &holes)
 	}
 
 	var holes Holes
