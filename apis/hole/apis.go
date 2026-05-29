@@ -68,11 +68,19 @@ func ListHomePage(c *fiber.Ctx) (err error) {
 			return nil
 		}
 
-		querySet, err := holes.MakeQuerySet(query.Offset, query.Size, query.Order, c, tx)
+		querySet, err := holes.MakeSortedQuerySet(query.Offset, query.Size, query.Order, query.SortStrategy, query.CursorScore, query.CursorID, c, tx)
 		if err != nil {
 			return err
 		}
 		querySet = querySet.Where("hole.division_id IN ?", divisionIDs)
+
+		if query.CreatedStart != nil {
+			querySet = querySet.Where("hole.created_at >= ?", query.CreatedStart.Time)
+		}
+
+		if query.CreatedEnd != nil {
+			querySet = querySet.Where("hole.created_at <= ?", query.CreatedEnd.Time)
+		}
 
 		// 仿照 ListHoles：按 Tags 过滤（需同时拥有所有指定标签的树洞）
 		if len(query.Tags) != 0 {
@@ -135,7 +143,7 @@ func ListHolesByDivision(c *fiber.Ctx) error {
 
 	// get holes
 	var holes Holes
-	querySet, err := holes.MakeQuerySet(query.Offset, query.Size, query.Order, c)
+	querySet, err := holes.MakeSortedQuerySet(query.Offset, query.Size, query.Order, query.SortStrategy, query.CursorScore, query.CursorID, c)
 	if err != nil {
 		return err
 	}
@@ -176,7 +184,7 @@ func ListSFWHolesByDivision(c *fiber.Ctx) error {
 
 	// get sfw holes
 	var holes Holes
-	querySet, err := holes.MakeQuerySet(query.Offset, query.Size, query.Order, c)
+	querySet, err := holes.MakeSortedQuerySet(query.Offset, query.Size, query.Order, query.SortStrategy, query.CursorScore, query.CursorID, c)
 	if err != nil {
 		return err
 	}
@@ -226,7 +234,7 @@ func ListHolesByTag(c *fiber.Ctx) error {
 
 	// get holes
 	var holes Holes
-	querySet, err := holes.MakeQuerySet(query.Offset, query.Size, "", c)
+	querySet, err := holes.MakeSortedQuerySet(query.Offset, query.Size, query.Order, query.SortStrategy, query.CursorScore, query.CursorID, c)
 	if err != nil {
 		return err
 	}
@@ -260,7 +268,7 @@ func ListHolesByMe(c *fiber.Ctx) error {
 
 	// get holes
 	var holes Holes
-	querySet, err := holes.MakeQuerySet(query.Offset, query.Size, "", c)
+	querySet, err := holes.MakeSortedQuerySet(query.Offset, query.Size, query.Order, query.SortStrategy, query.CursorScore, query.CursorID, c)
 	if err != nil {
 		return err
 	}
@@ -291,7 +299,7 @@ func ListGoodHoles(c *fiber.Ctx) error {
 
 	// get holes
 	var holes Holes
-	querySet, err := holes.MakeQuerySet(query.Offset, query.Size, query.Order, c)
+	querySet, err := holes.MakeSortedQuerySet(query.Offset, query.Size, query.Order, query.SortStrategy, query.CursorScore, query.CursorID, c)
 	if err != nil {
 		return err
 	}
@@ -321,7 +329,7 @@ func ListHoles(c *fiber.Ctx) error {
 
 	var holes Holes
 	err = DB.Transaction(func(tx *gorm.DB) error {
-		querySet, err := holes.MakeQuerySet(query.Offset, query.Size, query.Order, c)
+		querySet, err := holes.MakeSortedQuerySet(query.Offset, query.Size, query.Order, query.SortStrategy, query.CursorScore, query.CursorID, c, tx)
 		if err != nil {
 			return err
 		}
@@ -340,7 +348,7 @@ func ListHoles(c *fiber.Ctx) error {
 
 		if len(query.Tags) != 0 {
 			var tags []Tag
-			err = DB.Where("name IN ?", query.Tags).Find(&tags).Error
+			err = tx.Where("name IN ?", query.Tags).Find(&tags).Error
 			if err != nil {
 				return err
 			}
@@ -355,7 +363,7 @@ func ListHoles(c *fiber.Ctx) error {
 			}
 
 			var holeIDs []int
-			err = DB.Table("hole_tags").
+			err = tx.Table("hole_tags").
 				Select("hole_id").
 				Where("tag_id IN ?", tagIDs).
 				Group("hole_id").
@@ -372,11 +380,14 @@ func ListHoles(c *fiber.Ctx) error {
 			}
 		} else if query.Tag != "" {
 			var tag Tag
-			err = DB.Where("name = ?", query.Tag).Find(&tag).Error
+			err = tx.Where("name = ?", query.Tag).Find(&tag).Error
 			if err != nil {
 				return err
 			}
-			err = querySet.Model(&tag).Order("updated_at desc").Association("Holes").Find(&holes)
+			querySet = querySet.
+				Joins("JOIN hole_tags ON hole_tags.hole_id = hole.id").
+				Where("hole_tags.tag_id = ?", tag.ID)
+			err = querySet.Find(&holes).Error
 			if err != nil {
 				return err
 			}

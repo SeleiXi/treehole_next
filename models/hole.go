@@ -16,6 +16,7 @@ import (
 
 	"hash/fnv"
 	"treehole_next/config"
+	"treehole_next/hole_sort"
 	"treehole_next/utils"
 )
 
@@ -90,6 +91,8 @@ type Hole struct {
 
 	// AI 摘要可用性，仅用于序列化
 	AISummaryAvailable bool `json:"ai_summary_available" gorm:"-"`
+
+	SortScore *float64 `json:"sort_score,omitempty" gorm:"column:sort_score;->;-:migration"`
 }
 
 func (hole *Hole) GetID() int {
@@ -413,18 +416,22 @@ func MakeHoleQuerySet(c *fiber.Ctx, tx ...*gorm.DB) (*gorm.DB, error) {
 
 // MakeQuerySet 构建带分页与排序的树洞查询集。若传入 tx 则基于该 DB，否则使用全局 DB。
 func (holes Holes) MakeQuerySet(offset common.CustomTime, size int, order string, c *fiber.Ctx, tx ...*gorm.DB) (*gorm.DB, error) {
+	return holes.MakeSortedQuerySet(offset, size, order, hole_sort.StrategyOriginal, nil, nil, c, tx...)
+}
+
+func (holes Holes) MakeSortedQuerySet(offset common.CustomTime, size int, order string, strategy string, cursorScore *float64, cursorID *int, c *fiber.Ctx, tx ...*gorm.DB) (*gorm.DB, error) {
 	querySet, err := MakeHoleQuerySet(c, tx...)
 	if err != nil {
 		return nil, err
 	}
-	if order == "time_created" || order == "created_at" {
-		return querySet.
-			Where("hole.created_at < ?", offset.Time).
-			Order("hole.created_at desc").Limit(size), nil
-	}
-	return querySet.
-		Where("hole.updated_at < ?", offset.Time).
-		Order("hole.updated_at desc").Limit(size), nil
+	return hole_sort.Apply(querySet, hole_sort.Options{
+		Strategy:    strategy,
+		Order:       order,
+		Offset:      offset.Time,
+		Size:        size,
+		CursorScore: cursorScore,
+		CursorID:    cursorID,
+	}, DB.Dialector.Name()), nil
 }
 
 /************************

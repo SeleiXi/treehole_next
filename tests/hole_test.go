@@ -25,6 +25,35 @@ func TestListHoleInADivision(t *testing.T) {
 	testAPI(t, "get", "/api/divisions/"+strings.Repeat(strconv.Itoa(largeInt), 15)+"/holes", 500) // huge divisionID
 }
 
+func TestListHolesByScoreSort(t *testing.T) {
+	err := DB.Model(&Hole{}).Where("id = ?", 11).Updates(Map{
+		"reply":              100,
+		"view":               1000,
+		"favorite_count":     5,
+		"subscription_count": 3,
+	}).Error
+	assert.Nil(t, err)
+
+	var holes Holes
+	testAPIModelWithQuery(t, "get", "/api/holes", 200, &holes, Map{
+		"sort_strategy": "hot",
+		"length":        3,
+	})
+	assert.NotEmpty(t, holes)
+	assert.Equal(t, 11, holes[0].ID)
+	assert.NotNil(t, holes[0].SortScore)
+
+	var nextPage Holes
+	testAPIModelWithQuery(t, "get", "/api/holes", 200, &nextPage, Map{
+		"sort_strategy": "hot",
+		"length":        3,
+		"cursor_score":  *holes[0].SortScore,
+		"cursor_id":     holes[0].ID,
+	})
+	assert.NotEmpty(t, nextPage)
+	assert.NotEqual(t, holes[0].ID, nextPage[0].ID)
+}
+
 func TestListHolesByTag(t *testing.T) {
 	var tag Tag
 	DB.Where("name = ?", "114").First(&tag)

@@ -10,20 +10,28 @@ import (
 )
 
 type ShowHomePageModel struct {
-	ExcludeDivisionIDs *[]int            `json:"exclude_division_ids" query:"exclude_division_ids" validate:"omitempty"` // default is all
-	Size0              int               `json:"length" query:"size" default:"10" validate:"max=10"`
-	Size               int               `json:"size" query:"size" default:"10" validate:"max=10"`
-	Offset0            common.CustomTime `json:"start_time" query:"offset" swaggertype:"string"` // updated time < offset (default is now)
-	Offset             common.CustomTime `json:"offset" query:"offset" swaggertype:"string"`
-	Tags               []string          `json:"tags" query:"tags"`
-	Order              string            `json:"order" query:"order"`
+	ExcludeDivisionIDs *[]int             `json:"exclude_division_ids" query:"exclude_division_ids" validate:"omitempty"` // default is all
+	Size0              int                `json:"length" query:"size" default:"10" validate:"max=10"`
+	Size               int                `json:"size" query:"size" default:"10" validate:"max=10"`
+	Offset0            common.CustomTime  `json:"start_time" query:"offset" swaggertype:"string"` // updated time < offset (default is now)
+	Offset             common.CustomTime  `json:"offset" query:"offset" swaggertype:"string"`
+	Tags               []string           `json:"tags" query:"tags"`
+	Order              string             `json:"order" query:"order"`
+	SortStrategy       string             `json:"sort_strategy" query:"sort_strategy"`
+	CursorScore        *float64           `json:"cursor_score" query:"cursor_score"`
+	CursorID           *int               `json:"cursor_id" query:"cursor_id"`
+	CreatedStart       *common.CustomTime `json:"created_start" query:"created_start" swaggertype:"string"`
+	CreatedEnd         *common.CustomTime `json:"created_end" query:"created_end" swaggertype:"string"`
 }
 
 type QueryTime struct {
 	Size int `json:"size" query:"size" default:"10" validate:"max=10"`
 	// updated time < offset (default is now)
-	Offset common.CustomTime `json:"offset" query:"offset" swaggertype:"string"`
-	Order  string            `json:"order" query:"order"`
+	Offset       common.CustomTime `json:"offset" query:"offset" swaggertype:"string"`
+	Order        string            `json:"order" query:"order"`
+	SortStrategy string            `json:"sort_strategy" query:"sort_strategy"`
+	CursorScore  *float64          `json:"cursor_score" query:"cursor_score"`
+	CursorID     *int              `json:"cursor_id" query:"cursor_id"`
 }
 
 func (q *QueryTime) SetDefaults() {
@@ -41,6 +49,9 @@ type ListOldModel struct {
 	Tags         []string           `json:"tags" query:"tags"`
 	DivisionID   int                `json:"division_id" query:"division_id"`
 	Order        string             `json:"order" query:"order"`
+	SortStrategy string             `json:"sort_strategy" query:"sort_strategy"`
+	CursorScore  *float64           `json:"cursor_score" query:"cursor_score"`
+	CursorID     *int               `json:"cursor_id" query:"cursor_id"`
 	CreatedStart *common.CustomTime `json:"created_start" query:"created_start" swaggertype:"string"`
 	CreatedEnd   *common.CustomTime `json:"created_end" query:"created_end" swaggertype:"string"`
 }
