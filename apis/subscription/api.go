@@ -21,7 +21,7 @@ import (
 // @Success 200 {array} models.Hole
 func ListSubscriptions(c *fiber.Ctx) error {
 	// get userID
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}
@@ -68,7 +68,7 @@ func AddSubscription(c *fiber.Ctx) error {
 	}
 
 	// get userID
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}
@@ -114,7 +114,7 @@ func DeleteSubscription(c *fiber.Ctx) error {
 	}
 
 	// get userID
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}

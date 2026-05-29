@@ -5,7 +5,6 @@ import (
 	"time"
 	"treehole_next/utils/sensitive"
 
-	"github.com/opentreehole/go-common"
 	"github.com/rs/zerolog/log"
 
 	"treehole_next/utils"
@@ -178,7 +177,7 @@ func (floors Floors) MakeQuerySetWithTimeRange(holeID *int, offset, size *int, s
 }
 
 func (floors Floors) loadFloorLikes(c *fiber.Ctx) (err error) {
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return
 	}
@@ -214,7 +213,7 @@ func (floors Floors) loadFloorLikes(c *fiber.Ctx) (err error) {
 }
 
 func (floors Floors) Preprocess(c *fiber.Ctx) (err error) {
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return
 	}
@@ -602,12 +601,12 @@ func (floor *Floor) SendSensitive(_ *gorm.DB) error {
 	// construct message
 	desc := "您有待审核的内容"
 	message := Notification{
-		Data:          floor,
-		Recipients:    userIDs,
-		Description:   desc,
-		Title:         desc,
-		Type:          MessageTypeSensitive,
-		URL:           fmt.Sprintf("/api/floors/%d", floor.ID),
+		Data:           floor,
+		Recipients:     userIDs,
+		Description:    desc,
+		Title:          desc,
+		Type:           MessageTypeSensitive,
+		URL:            fmt.Sprintf("/api/floors/%d", floor.ID),
 		RelatedFloorID: &floor.ID,
 	}
 	_, err := message.Send()

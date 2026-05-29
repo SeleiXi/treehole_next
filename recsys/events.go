@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/opentreehole/go-common"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 
@@ -15,7 +14,7 @@ func logImpressions(tx *gorm.DB, c *fiber.Ctx, holes models.Holes, requestID str
 	if len(holes) == 0 {
 		return
 	}
-	userID, err := common.GetUserID(c)
+	userID, err := models.GetCurrUserID(c)
 	if err != nil {
 		userID = 0
 	}

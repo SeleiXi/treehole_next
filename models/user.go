@@ -208,6 +208,17 @@ func isTestLoginToken(c *fiber.Ctx) bool {
 	return token == config.Config.TestAccessToken || token == config.Config.TestRefreshToken
 }
 
+func GetCurrUserID(c *fiber.Ctx) (int, error) {
+	if config.Config.EnableTestLogin && isTestLoginToken(c) {
+		userID := config.Config.TestLoginUserID
+		if userID <= 0 {
+			return 1000001, nil
+		}
+		return userID, nil
+	}
+	return common.GetUserID(c)
+}
+
 // LoadUserByID load user from database.
 // if user not found, create a new user with default config.
 // This method starts a transaction and would add a lock on the user row, as soon as it starts to read.

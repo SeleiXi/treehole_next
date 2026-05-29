@@ -151,7 +151,7 @@ func DeleteReport(c *fiber.Ctx) error {
 	}
 
 	// get user id
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}

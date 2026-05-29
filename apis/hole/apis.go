@@ -285,7 +285,7 @@ func ListHolesByMe(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}
@@ -316,7 +316,7 @@ func ListGoodHoles(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	_, err = common.GetUserID(c)
+	_, err = GetCurrUserID(c)
 	if err != nil {
 		return err
 	}
@@ -998,7 +998,7 @@ func DeleteHole(c *fiber.Ctx) error {
 	return c.Status(204).JSON(nil)
 }
 func GenerateSummary(c *fiber.Ctx) error {
-	uid, _ := common.GetUserID(c)
+	uid, _ := GetCurrUserID(c)
 	if config.Config.WhiteListUserIds != nil && !slices.Contains(config.Config.WhiteListUserIds, uid) {
 		h := fnv.New32a()
 		h.Write([]byte(strconv.Itoa(uid)))

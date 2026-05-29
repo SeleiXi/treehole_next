@@ -19,7 +19,7 @@ import (
 // @Success 200 {array} models.Hole
 func ListFavorites(c *fiber.Ctx) error {
 	// get userID
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}
@@ -97,7 +97,7 @@ func AddFavorite(c *fiber.Ctx) error {
 	}
 
 	// get userID
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func ModifyFavorite(c *fiber.Ctx) error {
 	}
 
 	// get userID
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}
@@ -192,7 +192,7 @@ func DeleteFavorite(c *fiber.Ctx) error {
 	}
 
 	// get userID
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}
@@ -232,7 +232,7 @@ func DeleteFavorite(c *fiber.Ctx) error {
 // @Success 200 {array} models.FavoriteGroup
 func ListFavoriteGroups(c *fiber.Ctx) error {
 	// get userID
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}
@@ -288,7 +288,7 @@ func AddFavoriteGroup(c *fiber.Ctx) error {
 	}
 
 	// get userID
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}
@@ -334,7 +334,7 @@ func ModifyFavoriteGroup(c *fiber.Ctx) error {
 	}
 
 	// get userID
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}
@@ -381,7 +381,7 @@ func DeleteFavoriteGroup(c *fiber.Ctx) error {
 	}
 
 	// get userID
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}
@@ -413,7 +413,7 @@ func MoveFavorite(c *fiber.Ctx) error {
 	}
 
 	// get userID
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}

@@ -24,7 +24,7 @@ func ListMessages(c *fiber.Ctx) error {
 		return err
 	}
 
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}
@@ -106,7 +106,7 @@ func SendMail(c *fiber.Ctx) error {
 // @Router /messages/clear [post]
 // @Success 204
 func ClearMessages(c *fiber.Ctx) error {
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}
@@ -140,7 +140,7 @@ func ClearMessagesDeprecated(c *fiber.Ctx) error {
 // @Param id path int true "message id"
 // @Success 204
 func DeleteMessage(c *fiber.Ctx) error {
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}

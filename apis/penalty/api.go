@@ -270,7 +270,7 @@ func BanUserForever(c *fiber.Ctx) error {
 // @Router /users/me/punishments [get]
 // @Success 200 {array} Punishment
 func ListMyPunishments(c *fiber.Ctx) error {
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}

@@ -294,7 +294,7 @@ func (holes Holes) Preprocess(c *fiber.Ctx) error {
 		hole.SetHoleFloor()
 		floors = append(floors, hole.Floors...)
 		// set ai_summary_available
-		uid, _ := common.GetUserID(c)
+		uid, _ := GetCurrUserID(c)
 
 		// for users in whitelist or whitelist is empty, AISummaryAvailable is true,
 		hole.AISummaryAvailable = config.Config.WhiteListUserIds == nil || slices.Contains(config.Config.WhiteListUserIds, uid)

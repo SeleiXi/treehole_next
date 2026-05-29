@@ -183,7 +183,7 @@ func ModifyTag(c *fiber.Ctx) error {
 	DB.Save(&tag)
 
 	// log
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}
@@ -278,7 +278,7 @@ func DeleteTag(c *fiber.Ctx) error {
 	}
 
 	// log
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}

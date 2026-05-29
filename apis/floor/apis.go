@@ -553,7 +553,7 @@ func ModifyFloorLike(c *fiber.Ctx) error {
 		return err
 	}
 
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}
@@ -671,7 +671,7 @@ func DeleteFloor(c *fiber.Ctx) error {
 // @Failure 404 {object} MessageModel
 func ListReplyFloors(c *fiber.Ctx) error {
 	//get userID
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}

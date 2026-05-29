@@ -10,7 +10,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/opentreehole/go-common"
 	"gorm.io/gorm"
 )
 
@@ -69,7 +68,7 @@ func (report *Report) Create(c *fiber.Ctx, db ...*gorm.DB) error {
 	} else {
 		tx = DB
 	}
-	userID, err := common.GetUserID(c)
+	userID, err := GetCurrUserID(c)
 	if err != nil {
 		return err
 	}
