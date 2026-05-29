@@ -14,7 +14,7 @@ import (
 	"time"
 	"treehole_next/apis/message"
 	"treehole_next/config"
-	"treehole_next/services/feed"
+	"treehole_next/recsys"
 	"treehole_next/utils/sensitive"
 
 	"github.com/gofiber/fiber/v2"
@@ -61,8 +61,8 @@ func ListHomePage(c *fiber.Ctx) (err error) {
 		}
 	}
 
-	if feed.ShouldUseRecommend(query.FeedMode, query.Order, query.SortStrategy) {
-		holes, err := feed.GetHomeFeed(c, feed.HomeFeedRequest{
+	if recsys.ShouldUseRecommend(query.FeedMode, query.Order, query.SortStrategy) {
+		holes, err := recsys.GetHomeFeed(c, recsys.HomeFeedRequest{
 			ExcludeDivisionIDs: query.ExcludeDivisionIDs,
 			Size:               query.Size,
 			Offset:             query.Offset,
@@ -1159,7 +1159,6 @@ func GenerateSummary(c *fiber.Ctx) error {
 		// 3. 提取中间并按 Like 降序筛选
 		middle := make(Floors, len(floors)-earliestFloors-newestFloors)
 		copy(middle, floors[earliestFloors:len(floors)-newestFloors]) // copy 防止影响原切片顺序
-
 		rand.Shuffle(len(middle), func(i, j int) {
 			middle[i], middle[j] = middle[j], middle[i]
 		})

@@ -1,4 +1,4 @@
-package hole_sort
+package ranking
 
 import (
 	"strings"

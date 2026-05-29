@@ -1,8 +1,9 @@
-# Hole sorting strategies
+# Recsys
 
-This top-level package keeps global hole ranking logic outside API handlers and
-models so future rewrites can move or replace the whole module with minimal
-call-site changes.
+This top-level package keeps global hole ranking and homepage feed logic outside
+API handlers and models so future rewrites can move or replace the whole module
+with minimal call-site changes. The reusable score-based query ordering helpers
+live in `recsys/ranking` to avoid import cycles with `models`.
 
 Supported strategies:
 
@@ -17,3 +18,14 @@ Supported strategies:
 Score-based strategies expose `sort_score` in API responses and accept
 `cursor_score` plus `cursor_id` for keyset pagination. This avoids missing or
 duplicating items when infinite scrolling through a globally ranked list.
+
+The recommendation homepage path (`order=recommend` or `feed_mode=recommend`)
+uses a lightweight feed pipeline:
+
+```text
+filter -> multi-recall -> rule ranking -> diversity reranking -> impression log
+```
+
+The current implementation is intentionally rule-based. It establishes the
+service boundary, event table, feature table, recall/rank/rerank modules, and
+fallback behavior before introducing heavier ML models.
