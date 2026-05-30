@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/opentreehole/go-common"
 	"gorm.io/gorm"
 
 	"treehole_next/models"
@@ -33,8 +32,8 @@ func loadUserFeedback(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Time) u
 		divisions:   map[int]float64{},
 		tags:        map[int]float64{},
 	}
-	userID, err := common.GetUserID(c)
-	if err != nil || userID == 0 {
+	userID := currentUserID(c)
+	if userID == 0 {
 		return feedback
 	}
 	feedback.userID = userID
