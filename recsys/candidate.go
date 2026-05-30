@@ -39,6 +39,7 @@ func recallCandidates(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionID
 	recalls := []func() ([]int, error){
 		func() ([]int, error) { return recallActive(tx, c, req, divisionIDs, poolSize/2) },
 		func() ([]int, error) { return recallFresh(tx, c, req, divisionIDs, poolSize/3) },
+		func() ([]int, error) { return recallHot(tx, c, req, divisionIDs, poolSize/3) },
 		func() ([]int, error) { return recallQuality(tx, c, req, divisionIDs, poolSize/3) },
 		func() ([]int, error) { return recallExplore(tx, c, req, divisionIDs, poolSize/6) },
 	}
@@ -59,6 +60,10 @@ func baseCandidateQuery(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, division
 		return nil, err
 	}
 	query = query.Where("hole.division_id IN ?", divisionIDs)
+	suppressedIDs := RecentSuppressedHoleIDs(tx, c, req.Now)
+	if len(suppressedIDs) != 0 {
+		query = query.Where("hole.id NOT IN ?", suppressedIDs)
+	}
 	if req.CreatedStart != nil {
 		query = query.Where("hole.created_at >= ?", req.CreatedStart.Time)
 	}
@@ -109,6 +114,20 @@ func recallQuality(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs [
 		Order("(CASE WHEN hole.good THEN 1 ELSE 0 END) desc").
 		Order("hole.favorite_count desc").
 		Order("hole.subscription_count desc").
+		Order("hole.updated_at desc").
+		Limit(limit).
+		Pluck("hole.id", &ids).Error
+	return ids, err
+}
+
+func recallHot(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int, limit int) ([]int, error) {
+	query, err := baseCandidateQuery(tx, c, req, divisionIDs)
+	if err != nil {
+		return nil, err
+	}
+	var ids []int
+	err = query.
+		Order("(hole.reply * 12 + hole.favorite_count * 24 + hole.subscription_count * 18 + hole.view * 0.25) desc").
 		Order("hole.updated_at desc").
 		Limit(limit).
 		Pluck("hole.id", &ids).Error
