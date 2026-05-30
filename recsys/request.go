@@ -9,8 +9,6 @@ import (
 const (
 	ModeClassic   = "classic"
 	ModeRecommend = "recommend"
-
-	EventImpression = "impression"
 )
 
 type HomeFeedRequest struct {
@@ -40,6 +38,15 @@ func ShouldUseRecommend(feedMode, order, sortStrategy string) bool {
 	return normalize(feedMode) == ModeRecommend ||
 		normalize(order) == ModeRecommend ||
 		normalize(sortStrategy) == ModeRecommend
+}
+
+func IsFeedbackAwareRank(sortStrategy string) bool {
+	switch normalize(sortStrategy) {
+	case ModeRecommend, "hot", "hotness":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalize(value string) string {

@@ -4,12 +4,13 @@ import (
 	"sort"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"treehole_next/models"
 
 	"gorm.io/gorm"
 )
 
-func rankCandidates(tx *gorm.DB, holeIDs []int, now time.Time) ([]scoredHole, error) {
+func rankCandidates(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Time) ([]scoredHole, error) {
 	if len(holeIDs) == 0 {
 		return nil, nil
 	}
@@ -23,10 +24,17 @@ func rankCandidates(tx *gorm.DB, holeIDs []int, now time.Time) ([]scoredHole, er
 	if err != nil {
 		return nil, err
 	}
+	feedback := loadUserFeedback(tx, c, holeIDs, now)
+	holeTags := loadCandidateTags(tx, holeIDs)
 
 	scored := make([]scoredHole, 0, len(holes))
 	for _, hole := range holes {
+		if feedback.shouldSuppress(hole.ID) {
+			continue
+		}
 		score := scoreHole(hole, features[hole.ID], now)
+		score += feedback.affinityScore(hole, holeTags[hole.ID])
+		score -= feedback.penalty(hole.ID)
 		hole.SortScore = &score
 		scored = append(scored, scoredHole{hole: hole, score: score})
 	}
@@ -38,6 +46,21 @@ func rankCandidates(tx *gorm.DB, holeIDs []int, now time.Time) ([]scoredHole, er
 		return scored[i].score > scored[j].score
 	})
 	return scored, nil
+}
+
+func loadCandidateTags(tx *gorm.DB, holeIDs []int) map[int][]int {
+	result := map[int][]int{}
+	if len(holeIDs) == 0 {
+		return result
+	}
+	var rows []models.HoleTag
+	if err := tx.Where("hole_id IN ?", holeIDs).Find(&rows).Error; err != nil {
+		return result
+	}
+	for _, row := range rows {
+		result[row.HoleID] = append(result[row.HoleID], row.TagID)
+	}
+	return result
 }
 
 func applyCursor(scored []scoredHole, cursorScore *float64, cursorID *int) []scoredHole {

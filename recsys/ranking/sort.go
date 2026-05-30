@@ -14,12 +14,13 @@ const (
 )
 
 type Options struct {
-	Strategy    string
-	Order       string
-	Offset      time.Time
-	Size        int
-	CursorScore *float64
-	CursorID    *int
+	Strategy       string
+	Order          string
+	Offset         time.Time
+	Size           int
+	CursorScore    *float64
+	CursorID       *int
+	ExcludeHoleIDs []int
 }
 
 type scoreExpr struct {
@@ -70,6 +71,9 @@ func applyOriginalSort(db *gorm.DB, opts Options) *gorm.DB {
 
 func applyScoreSort(db *gorm.DB, expr scoreExpr, opts Options) *gorm.DB {
 	db = db.Select("hole.*, ("+expr.SQL+") AS sort_score", expr.Vars...)
+	if len(opts.ExcludeHoleIDs) != 0 {
+		db = db.Where("hole.id NOT IN ?", opts.ExcludeHoleIDs)
+	}
 	if opts.CursorScore != nil && opts.CursorID != nil {
 		whereVars := append([]any{}, expr.Vars...)
 		whereVars = append(whereVars, *opts.CursorScore)

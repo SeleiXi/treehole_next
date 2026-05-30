@@ -424,14 +424,41 @@ func (holes Holes) MakeSortedQuerySet(offset common.CustomTime, size int, order 
 	if err != nil {
 		return nil, err
 	}
+	db := DB
+	if len(tx) > 0 && tx[0] != nil {
+		db = tx[0]
+	}
+	excludeHoleIDs := recentSuppressedHoleIDs(db, c, ranking.NormalizeStrategy(strategy))
 	return ranking.Apply(querySet, ranking.Options{
-		Strategy:    strategy,
-		Order:       order,
-		Offset:      offset.Time,
-		Size:        size,
-		CursorScore: cursorScore,
-		CursorID:    cursorID,
+		Strategy:       strategy,
+		Order:          order,
+		Offset:         offset.Time,
+		Size:           size,
+		CursorScore:    cursorScore,
+		CursorID:       cursorID,
+		ExcludeHoleIDs: excludeHoleIDs,
 	}, DB.Dialector.Name()), nil
+}
+
+func recentSuppressedHoleIDs(tx *gorm.DB, c *fiber.Ctx, strategy string) []int {
+	if strategy != ranking.StrategyHot && strategy != ranking.StrategyRecommend {
+		return nil
+	}
+	userID, err := common.GetUserID(c)
+	if err != nil || userID == 0 {
+		return nil
+	}
+	var ids []int
+	err = tx.Model(&FeedEvent{}).
+		Where("user_id = ?", userID).
+		Where("event_type IN ?", []string{FeedEventClick, FeedEventHide, FeedEventReport}).
+		Where("created_at >= ?", time.Now().Add(-30*24*time.Hour)).
+		Distinct().
+		Pluck("hole_id", &ids).Error
+	if err != nil {
+		return nil
+	}
+	return ids
 }
 
 /************************
