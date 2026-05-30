@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 	. "treehole_next/models"
+	"treehole_next/recsys"
 	. "treehole_next/utils"
 
 	"github.com/opentreehole/go-common"
@@ -113,6 +114,10 @@ func AddReport(c *fiber.Ctx) error {
 	err = report.Create(c)
 	if err != nil {
 		return err
+	}
+	var floor Floor
+	if err := DB.First(&floor, body.FloorID).Error; err == nil {
+		recsys.LogEvent(c, DB, floor.HoleID, FeedEventReport, recsys.ModeClassic, -1, "")
 	}
 
 	// Send Notification

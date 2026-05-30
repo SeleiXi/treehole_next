@@ -5,6 +5,7 @@ import (
 	"slices"
 	"time"
 	"treehole_next/apis/message"
+	"treehole_next/recsys"
 	"treehole_next/utils/sensitive"
 
 	"github.com/opentreehole/go-common"
@@ -58,6 +59,7 @@ func ListFloorsInAHole(c *fiber.Ctx) error {
 	if result.Error != nil {
 		return result.Error
 	}
+	recsys.LogEvent(c, DB, holeID, FeedEventClick, c.Query("feed_mode", recsys.ModeClassic), -1, c.Query("request_id"))
 
 	return Serialize(c, &floors)
 }
@@ -224,6 +226,7 @@ func CreateFloor(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	recsys.LogEvent(c, DB, hole.ID, FeedEventReply, c.Query("feed_mode", recsys.ModeClassic), -1, c.Query("request_id"))
 
 	return c.Status(201).JSON(&floor)
 }
@@ -293,6 +296,7 @@ func CreateFloorOld(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	recsys.LogEvent(c, DB, hole.ID, FeedEventReply, c.Query("feed_mode", recsys.ModeClassic), -1, c.Query("request_id"))
 
 	return c.Status(201).JSON(&CreateOldResponse{
 		Data:    floor,

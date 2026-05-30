@@ -2,6 +2,16 @@ package models
 
 import "time"
 
+const (
+	FeedEventImpression = "impression"
+	FeedEventClick      = "click"
+	FeedEventReply      = "reply"
+	FeedEventFavorite   = "favorite"
+	FeedEventSubscribe  = "subscribe"
+	FeedEventHide       = "hide"
+	FeedEventReport     = "report"
+)
+
 type FeedEvent struct {
 	ID        uint      `json:"id" gorm:"primaryKey"`
 	UserID    int       `json:"user_id" gorm:"index:idx_feed_event_user_created,priority:1"`
