@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/plugin/dbresolver"
 	. "treehole_next/models"
+	"treehole_next/recsys"
 	"treehole_next/utils"
 )
 
@@ -110,6 +111,7 @@ func AddFavorite(c *fiber.Ctx) error {
 		if err != nil {
 			return err
 		}
+		recsys.LogEvent(c, tx, body.HoleID, FeedEventFavorite, recsys.ModeClassic, -1, "")
 
 		// create response
 		data, err = UserGetFavoriteData(tx, userID)

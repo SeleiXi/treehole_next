@@ -7,6 +7,7 @@ import (
 	"gorm.io/plugin/dbresolver"
 
 	. "treehole_next/models"
+	"treehole_next/recsys"
 	. "treehole_next/utils"
 )
 
@@ -81,6 +82,7 @@ func AddSubscription(c *fiber.Ctx) error {
 		if err != nil {
 			return err
 		}
+		recsys.LogEvent(c, tx, body.HoleID, FeedEventSubscribe, recsys.ModeClassic, -1, "")
 
 		// create response
 		data, err = UserGetSubscriptionData(tx, userID)

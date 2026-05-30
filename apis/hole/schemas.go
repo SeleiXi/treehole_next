@@ -56,6 +56,7 @@ type ListOldModel struct {
 	CursorID     *int               `json:"cursor_id" query:"cursor_id"`
 	CreatedStart *common.CustomTime `json:"created_start" query:"created_start" swaggertype:"string"`
 	CreatedEnd   *common.CustomTime `json:"created_end" query:"created_end" swaggertype:"string"`
+	RequestID    string             `json:"request_id" query:"request_id"`
 }
 
 func (q *ListOldModel) SetDefaults() {

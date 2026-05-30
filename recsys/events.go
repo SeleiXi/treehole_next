@@ -10,11 +10,47 @@ import (
 	"treehole_next/models"
 )
 
+func LogEvent(c *fiber.Ctx, tx *gorm.DB, holeID int, eventType string, feedMode string, position int, requestID string) {
+	if tx == nil {
+		tx = models.DB
+	}
+	userID, err := common.GetUserID(c)
+	if err != nil || userID == 0 || holeID == 0 || eventType == "" {
+		return
+	}
+	if feedMode == "" {
+		feedMode = ModeClassic
+	}
+	event := models.FeedEvent{
+		UserID:    userID,
+		HoleID:    holeID,
+		EventType: eventType,
+		FeedMode:  feedMode,
+		Position:  position,
+		RequestID: requestID,
+		CreatedAt: time.Now(),
+	}
+	if err := tx.Create(&event).Error; err != nil {
+		log.Warn().Err(err).Int("hole_id", holeID).Str("event_type", eventType).Msg("could not write feed event")
+	}
+}
+
 func logImpressions(tx *gorm.DB, c *fiber.Ctx, holes models.Holes, requestID string) {
+	LogImpressions(tx, c, holes, ModeRecommend, requestID)
+}
+
+func LogImpressions(tx *gorm.DB, c *fiber.Ctx, holes models.Holes, feedMode string, requestID string) {
 	if len(holes) == 0 {
 		return
 	}
+<<<<<<< HEAD
 	userID, err := models.GetCurrUserID(c)
+=======
+	if feedMode == "" {
+		feedMode = ModeClassic
+	}
+	userID, err := common.GetUserID(c)
+>>>>>>> 89954bb (feat(recsys): record feed interaction events)
 	if err != nil {
 		userID = 0
 	}
@@ -24,8 +60,8 @@ func logImpressions(tx *gorm.DB, c *fiber.Ctx, holes models.Holes, requestID str
 		events = append(events, models.FeedEvent{
 			UserID:    userID,
 			HoleID:    hole.ID,
-			EventType: EventImpression,
-			FeedMode:  ModeRecommend,
+			EventType: models.FeedEventImpression,
+			FeedMode:  feedMode,
 			Position:  i,
 			RequestID: requestID,
 			CreatedAt: now,

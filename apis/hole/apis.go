@@ -433,6 +433,9 @@ func ListHoles(c *fiber.Ctx) error {
 			holes[i].UpdatedAt = holes[i].CreatedAt
 		}
 	}
+	if recsys.IsFeedbackAwareRank(query.SortStrategy) {
+		recsys.LogImpressions(DB, c, holes, query.SortStrategy, query.RequestID)
+	}
 
 	return Serialize(c, &holes)
 }
@@ -460,6 +463,7 @@ func GetHole(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	recsys.LogEvent(c, DB, hole.ID, FeedEventClick, c.Query("feed_mode", recsys.ModeClassic), -1, c.Query("request_id"))
 
 	return Serialize(c, &hole)
 }
@@ -871,6 +875,7 @@ func HideHole(c *fiber.Ctx) error {
 
 	// log
 	MyLog("Hole", "Hide", holeID, user.ID, RoleAdmin)
+	recsys.LogEvent(c, DB, holeID, FeedEventHide, recsys.ModeClassic, -1, "")
 	CreateAdminLog(DB, AdminLogTypeHideHole, user.ID, struct {
 		HoleID int  `json:"hole_id"`
 		Hidden bool `json:"hidden"`
