@@ -80,6 +80,36 @@ func TestListHomePageRecommendFeed(t *testing.T) {
 	err := DB.Where("request_id = ?", "test-feed-request").Find(&events).Error
 	assert.Nil(t, err)
 	assert.Len(t, events, len(holes))
+
+	testAPIModel(t, "get", "/api/holes/"+strconv.Itoa(holes[0].ID), 200, &Hole{})
+
+	var refreshed Holes
+	testAPIModelWithQuery(t, "get", "/api/holes/_homepage", 200, &refreshed, Map{
+		"order":      "recommend",
+		"length":     5,
+		"request_id": "test-feed-after-click",
+	})
+	assert.NotContains(t, utils.Models2IDSlice(refreshed), holes[0].ID)
+}
+
+func TestFeedbackAwareScoreSortSuppressesClickedHoles(t *testing.T) {
+	var holes Holes
+	testAPIModelWithQuery(t, "get", "/api/holes", 200, &holes, Map{
+		"sort_strategy": "hot",
+		"length":        3,
+		"request_id":    "test-hot-before-click",
+	})
+	assert.NotEmpty(t, holes)
+
+	testAPIModel(t, "get", "/api/holes/"+strconv.Itoa(holes[0].ID), 200, &Hole{})
+
+	var afterClick Holes
+	testAPIModelWithQuery(t, "get", "/api/holes", 200, &afterClick, Map{
+		"sort_strategy": "hot",
+		"length":        3,
+		"request_id":    "test-hot-after-click",
+	})
+	assert.NotContains(t, utils.Models2IDSlice(afterClick), holes[0].ID)
 }
 
 func TestListHolesByTag(t *testing.T) {
