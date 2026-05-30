@@ -11,6 +11,7 @@ import (
 	"treehole_next/apis/message"
 	"treehole_next/config"
 	"treehole_next/models"
+	"treehole_next/recsys"
 	"treehole_next/utils"
 	"treehole_next/utils/sensitive"
 
@@ -52,6 +53,7 @@ func startTasks() context.CancelFunc {
 	ctx, cancel := context.WithCancel(context.Background())
 	go hole.UpdateHoleViews(ctx)
 	go hole.PurgeHole(ctx)
+	go recsys.UpdateFeatures(ctx)
 	go message.PurgeMessage()
 	// go models.UpdateAdminList(ctx)
 	go sensitive.UpdateSensitiveLabelMap(ctx)
