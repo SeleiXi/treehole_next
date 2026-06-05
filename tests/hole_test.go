@@ -119,6 +119,51 @@ func TestFeedbackAwareScoreSortSuppressesExplicitNegatives(t *testing.T) {
 	assert.NotContains(t, utils.Models2IDSlice(afterReport), holes[0].ID)
 }
 
+func TestFeedbackAwareScoreSortFatiguesOpenedHoles(t *testing.T) {
+	targetIDs := []int{11, 12, 13}
+	err := DB.Where("hole_id IN ?", targetIDs).Delete(&FeedEvent{}).Error
+	assert.Nil(t, err)
+	err = DB.Model(&Hole{}).Where("id IN ?", targetIDs).Updates(Map{
+		"reply":              0,
+		"view":               0,
+		"favorite_count":     0,
+		"subscription_count": 0,
+	}).Error
+	assert.Nil(t, err)
+	err = DB.Model(&Hole{}).Where("id = ?", 11).Updates(Map{
+		"reply":              100,
+		"view":               1000,
+		"favorite_count":     5,
+		"subscription_count": 3,
+	}).Error
+	assert.Nil(t, err)
+	err = DB.Model(&Hole{}).Where("id = ?", 12).Updates(Map{
+		"reply": 20,
+		"view":  200,
+	}).Error
+	assert.Nil(t, err)
+
+	var beforeOpen Holes
+	testAPIModelWithQuery(t, "get", "/api/holes", 200, &beforeOpen, Map{
+		"sort_strategy": "hot",
+		"length":        5,
+		"request_id":    "test-hot-before-open-fatigue",
+	})
+	assert.NotEmpty(t, beforeOpen)
+	assert.Equal(t, 11, beforeOpen[0].ID)
+
+	testAPIModel(t, "get", "/api/holes/11", 200, &Hole{})
+
+	var afterOpen Holes
+	testAPIModelWithQuery(t, "get", "/api/holes", 200, &afterOpen, Map{
+		"sort_strategy": "hot",
+		"length":        5,
+		"request_id":    "test-hot-after-open-fatigue",
+	})
+	assert.NotEmpty(t, afterOpen)
+	assert.NotEqual(t, 11, afterOpen[0].ID)
+}
+
 func TestListHolesByTag(t *testing.T) {
 	var tag Tag
 	DB.Where("name = ?", "114").First(&tag)

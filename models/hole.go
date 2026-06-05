@@ -428,37 +428,24 @@ func (holes Holes) MakeSortedQuerySet(offset common.CustomTime, size int, order 
 	if len(tx) > 0 && tx[0] != nil {
 		db = tx[0]
 	}
-	excludeHoleIDs := recentSuppressedHoleIDs(db, c, ranking.NormalizeStrategy(strategy))
+	suppression := recentSuppressedHoleIDs(db, c, ranking.NormalizeStrategy(strategy))
 	return ranking.Apply(querySet, ranking.Options{
-		Strategy:       strategy,
-		Order:          order,
-		Offset:         offset.Time,
-		Size:           size,
-		CursorScore:    cursorScore,
-		CursorID:       cursorID,
-		ExcludeHoleIDs: excludeHoleIDs,
+		Strategy:           strategy,
+		Order:              order,
+		Offset:             offset.Time,
+		Size:               size,
+		CursorScore:        cursorScore,
+		CursorID:           cursorID,
+		ExcludeHoleIDs:     suppression.HardIDs,
+		SoftFatigueHoleIDs: suppression.SoftIDs,
 	}, DB.Dialector.Name()), nil
 }
 
-func recentSuppressedHoleIDs(tx *gorm.DB, c *fiber.Ctx, strategy string) []int {
+func recentSuppressedHoleIDs(tx *gorm.DB, c *fiber.Ctx, strategy string) HoleFeedbackSuppression {
 	if strategy != ranking.StrategyHot && strategy != ranking.StrategyRecommend {
-		return nil
+		return HoleFeedbackSuppression{}
 	}
-	user, err := GetCurrLoginUser(c)
-	if err != nil || user == nil || user.ID == 0 {
-		return nil
-	}
-	var ids []int
-	err = tx.Model(&FeedEvent{}).
-		Where("user_id = ?", user.ID).
-		Where("event_type IN ?", []string{FeedEventHide, FeedEventReport}).
-		Where("created_at >= ?", time.Now().Add(-30*24*time.Hour)).
-		Distinct().
-		Pluck("hole_id", &ids).Error
-	if err != nil {
-		return nil
-	}
-	return ids
+	return LoadHoleFeedbackSuppression(tx, c, nil, time.Now())
 }
 
 /************************

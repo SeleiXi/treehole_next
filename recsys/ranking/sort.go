@@ -14,13 +14,14 @@ const (
 )
 
 type Options struct {
-	Strategy       string
-	Order          string
-	Offset         time.Time
-	Size           int
-	CursorScore    *float64
-	CursorID       *int
-	ExcludeHoleIDs []int
+	Strategy           string
+	Order              string
+	Offset             time.Time
+	Size               int
+	CursorScore        *float64
+	CursorID           *int
+	ExcludeHoleIDs     []int
+	SoftFatigueHoleIDs []int
 }
 
 type scoreExpr struct {
@@ -70,7 +71,12 @@ func applyOriginalSort(db *gorm.DB, opts Options) *gorm.DB {
 }
 
 func applyScoreSort(db *gorm.DB, expr scoreExpr, opts Options) *gorm.DB {
-	db = db.Select("hole.*, ("+expr.SQL+") AS sort_score", expr.Vars...)
+	if len(opts.SoftFatigueHoleIDs) != 0 {
+		selectVars := append([]any{opts.SoftFatigueHoleIDs}, expr.Vars...)
+		db = db.Select("hole.*, (CASE WHEN hole.id IN ? THEN 1 ELSE 0 END) AS feedback_fatigue, ("+expr.SQL+") AS sort_score", selectVars...)
+	} else {
+		db = db.Select("hole.*, ("+expr.SQL+") AS sort_score", expr.Vars...)
+	}
 	if len(opts.ExcludeHoleIDs) != 0 {
 		db = db.Where("hole.id NOT IN ?", opts.ExcludeHoleIDs)
 	}
@@ -80,6 +86,9 @@ func applyScoreSort(db *gorm.DB, expr scoreExpr, opts Options) *gorm.DB {
 		whereVars = append(whereVars, expr.Vars...)
 		whereVars = append(whereVars, *opts.CursorScore, *opts.CursorID)
 		db = db.Where("("+expr.SQL+") < ? OR (ABS(("+expr.SQL+") - ?) < 0.000001 AND hole.id < ?)", whereVars...)
+	}
+	if len(opts.SoftFatigueHoleIDs) != 0 {
+		db = db.Order("feedback_fatigue asc")
 	}
 	return db.
 		Order("sort_score desc").
