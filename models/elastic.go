@@ -17,7 +17,6 @@ import (
 	"github.com/opentreehole/go-common"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
 	"treehole_next/config"
 	"treehole_next/utils"
@@ -368,13 +367,9 @@ func applySearchFeedbackQuerySort(querySet *gorm.DB, c *fiber.Ctx, now time.Time
 		userID,
 		now.Add(-feedbackNegativeLookback),
 	)
-	return querySet.Order(clause.Expr{
-		SQL: "CASE WHEN EXISTS (SELECT 1 FROM feed_event fe WHERE fe.user_id = ? AND fe.hole_id = floor.hole_id AND fe.event_type IN ('open', 'click') AND fe.created_at >= ?) THEN 1 ELSE 0 END ASC",
-		Vars: []any{
-			userID,
-			now.Add(-feedbackOpenLookback),
-		},
-	})
+	return querySet.
+		Select("floor.*, CASE WHEN EXISTS (SELECT 1 FROM feed_event fe WHERE fe.user_id = ? AND fe.hole_id = floor.hole_id AND fe.event_type IN ('open', 'click') AND fe.created_at >= ?) THEN 1 ELSE 0 END AS search_feedback_fatigue", userID, now.Add(-feedbackOpenLookback)).
+		Order("search_feedback_fatigue ASC")
 }
 
 func applySearchFeedbackFatigue(tx *gorm.DB, c *fiber.Ctx, floors Floors, limit int, now time.Time) Floors {
