@@ -27,6 +27,19 @@ func TestLinearModelScoresAndClamps(t *testing.T) {
 	assert.Equal(t, -1.0, model.Score(map[string]float64{"b": 10}))
 }
 
+func TestLinearModelNormalizesFeatureStats(t *testing.T) {
+	model := LinearModel{
+		Weights: map[string]float64{
+			"x": 2,
+		},
+		FeatureStats: map[string]FeatureStats{
+			"x": {Mean: 10, Std: 5},
+		},
+	}
+
+	assert.Equal(t, 4.0, model.Score(map[string]float64{"x": 20}))
+}
+
 func TestLoadLinearModelCachesByFileMetadata(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "model.json")
 	require.NoError(t, os.WriteFile(path, []byte(`{"version":"test","intercept":1,"weights":{"x":2}}`), 0o644))

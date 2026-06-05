@@ -11,12 +11,19 @@ import (
 )
 
 type LinearModel struct {
-	Version   string             `json:"version"`
-	Task      string             `json:"task,omitempty"`
-	Intercept float64            `json:"intercept"`
-	Weights   map[string]float64 `json:"weights"`
-	MinScore  *float64           `json:"min_score,omitempty"`
-	MaxScore  *float64           `json:"max_score,omitempty"`
+	Version         string                  `json:"version"`
+	Task            string                  `json:"task,omitempty"`
+	Intercept       float64                 `json:"intercept"`
+	Weights         map[string]float64      `json:"weights"`
+	FeatureStats    map[string]FeatureStats `json:"feature_stats,omitempty"`
+	TrainingMetrics map[string]float64      `json:"training_metrics,omitempty"`
+	MinScore        *float64                `json:"min_score,omitempty"`
+	MaxScore        *float64                `json:"max_score,omitempty"`
+}
+
+type FeatureStats struct {
+	Mean float64 `json:"mean"`
+	Std  float64 `json:"std"`
 }
 
 func (model *LinearModel) Score(features map[string]float64) float64 {
@@ -28,7 +35,7 @@ func (model *LinearModel) Score(features map[string]float64) float64 {
 		if math.IsNaN(value) || math.IsInf(value, 0) {
 			continue
 		}
-		score += model.Weights[name] * value
+		score += model.Weights[name] * model.normalize(name, value)
 	}
 	if model.MinScore != nil && score < *model.MinScore {
 		return *model.MinScore
@@ -37,6 +44,17 @@ func (model *LinearModel) Score(features map[string]float64) float64 {
 		return *model.MaxScore
 	}
 	return score
+}
+
+func (model *LinearModel) normalize(name string, value float64) float64 {
+	if model == nil || model.FeatureStats == nil {
+		return value
+	}
+	stats, ok := model.FeatureStats[name]
+	if !ok || stats.Std == 0 || math.IsNaN(stats.Std) || math.IsInf(stats.Std, 0) {
+		return value
+	}
+	return (value - stats.Mean) / stats.Std
 }
 
 type cacheEntry struct {
@@ -85,6 +103,9 @@ func Load(path string) (*LinearModel, error) {
 	}
 	if model.Weights == nil {
 		model.Weights = map[string]float64{}
+	}
+	if len(model.FeatureStats) == 0 {
+		model.FeatureStats = nil
 	}
 	store(path, cacheEntry{model: &model, mtime: info.ModTime(), size: info.Size()})
 	return &model, nil

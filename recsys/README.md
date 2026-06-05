@@ -61,4 +61,8 @@ The trainer builds pointwise logistic samples from real feedback:
 The JSON model is intentionally simple: an intercept plus feature weights. This
 keeps online inference deterministic, cheap, and easy to roll back while leaving
 room to replace the offline trainer with GBDT, a two-tower retriever, or a
-cross-encoder reranker later.
+cross-encoder reranker later. The trainer uses an older-to-newer time split,
+stores feature normalization stats in `feature_stats`, and reports train/eval
+logloss, AUC, and NDCG@10 against the existing baseline ranker. Use
+`-metrics-out /path/metrics.json` to persist the evaluation summary alongside the
+model artifact.
