@@ -55,3 +55,53 @@ func TestEvaluateReportsModelAndBaselineMetrics(t *testing.T) {
 	assert.Contains(t, metrics, "model_ndcg_10")
 	assert.Contains(t, metrics, "baseline_ndcg_10")
 }
+
+func TestValidateTrainingDataRejectsWeakData(t *testing.T) {
+	samples := []sample{
+		{label: 1, group: "q1"},
+		{label: 1, group: "q2"},
+		{label: 0, group: "q2"},
+	}
+
+	err := validateTrainingData(samples, trainingDataGate{
+		minSamples:   4,
+		minPositives: 2,
+		minNegatives: 1,
+		minGroups:    2,
+	})
+	assert.ErrorContains(t, err, "samples=3")
+
+	err = validateTrainingData(samples, trainingDataGate{
+		minSamples:   3,
+		minPositives: 2,
+		minNegatives: 2,
+		minGroups:    2,
+	})
+	assert.ErrorContains(t, err, "negatives=1")
+}
+
+func TestValidateTrainingDataAllowsHealthyOrExplicitWeakData(t *testing.T) {
+	samples := []sample{
+		{label: 1, group: "q1"},
+		{label: 0, group: "q1"},
+		{label: 1, group: "q2"},
+		{label: 0, group: "q2"},
+	}
+
+	err := validateTrainingData(samples, trainingDataGate{
+		minSamples:   4,
+		minPositives: 2,
+		minNegatives: 2,
+		minGroups:    2,
+	})
+	require.NoError(t, err)
+
+	err = validateTrainingData(samples[:1], trainingDataGate{
+		minSamples:   100,
+		minPositives: 100,
+		minNegatives: 100,
+		minGroups:    100,
+		allowWeak:    true,
+	})
+	require.NoError(t, err)
+}

@@ -25,19 +25,32 @@ type sample struct {
 	group    string
 }
 
+type trainingDataGate struct {
+	minSamples   int
+	minPositives int
+	minNegatives int
+	minGroups    int
+	allowWeak    bool
+}
+
 func main() {
 	var (
-		dbURL       = flag.String("db", os.Getenv("DB_URL"), "MySQL DSN, for example user:pass@tcp(host:3306)/treehole?parseTime=true&loc=Asia%2fShanghai")
-		task        = flag.String("task", "search", "training task: search or home")
-		out         = flag.String("out", "recsys_model.json", "output model JSON path")
-		days        = flag.Int("days", 30, "lookback days")
-		limit       = flag.Int("limit", 200000, "maximum training rows")
-		epochs      = flag.Int("epochs", 8, "SGD epochs")
-		lr          = flag.Float64("lr", 0.03, "SGD learning rate")
-		l2          = flag.Float64("l2", 0.0001, "L2 regularization")
-		evalRatio   = flag.Float64("eval-ratio", 0.2, "newest sample ratio reserved for evaluation")
-		metricsOut  = flag.String("metrics-out", "", "optional output JSON path for train/eval metrics")
-		topFeatures = flag.Int("top-features", 20, "number of largest absolute weights to print")
+		dbURL        = flag.String("db", os.Getenv("DB_URL"), "MySQL DSN, for example user:pass@tcp(host:3306)/treehole?parseTime=true&loc=Asia%2fShanghai")
+		task         = flag.String("task", "search", "training task: search or home")
+		out          = flag.String("out", "recsys_model.json", "output model JSON path")
+		days         = flag.Int("days", 30, "lookback days")
+		limit        = flag.Int("limit", 200000, "maximum training rows")
+		epochs       = flag.Int("epochs", 8, "SGD epochs")
+		lr           = flag.Float64("lr", 0.03, "SGD learning rate")
+		l2           = flag.Float64("l2", 0.0001, "L2 regularization")
+		evalRatio    = flag.Float64("eval-ratio", 0.2, "newest sample ratio reserved for evaluation")
+		metricsOut   = flag.String("metrics-out", "", "optional output JSON path for train/eval metrics")
+		topFeatures  = flag.Int("top-features", 20, "number of largest absolute weights to print")
+		minSamples   = flag.Int("min-samples", 200, "minimum samples required before writing a model")
+		minPositives = flag.Int("min-positives", 20, "minimum positive labels required before writing a model")
+		minNegatives = flag.Int("min-negatives", 20, "minimum negative labels required before writing a model")
+		minGroups    = flag.Int("min-groups", 10, "minimum distinct query/session/user groups required before writing a model")
+		allowWeak    = flag.Bool("allow-weak-data", false, "write a model even when data quality gates fail")
 	)
 	flag.Parse()
 
@@ -65,6 +78,15 @@ func main() {
 	}
 	if len(samples) == 0 {
 		fatal(errors.New("no training samples found"))
+	}
+	if err := validateTrainingData(samples, trainingDataGate{
+		minSamples:   *minSamples,
+		minPositives: *minPositives,
+		minNegatives: *minNegatives,
+		minGroups:    *minGroups,
+		allowWeak:    *allowWeak,
+	}); err != nil {
+		fatal(err)
 	}
 
 	trainSamples, evalSamples := splitSamplesByTime(samples, *evalRatio)
@@ -858,6 +880,39 @@ func labelStats(samples []sample) (int, int) {
 		}
 	}
 	return pos, neg
+}
+
+func validateTrainingData(samples []sample, gate trainingDataGate) error {
+	if gate.allowWeak {
+		return nil
+	}
+	if len(samples) < gate.minSamples {
+		return fmt.Errorf("insufficient training data: samples=%d min_samples=%d", len(samples), gate.minSamples)
+	}
+	pos, neg := labelStats(samples)
+	if pos < gate.minPositives {
+		return fmt.Errorf("insufficient training data: positives=%d min_positives=%d", pos, gate.minPositives)
+	}
+	if neg < gate.minNegatives {
+		return fmt.Errorf("insufficient training data: negatives=%d min_negatives=%d", neg, gate.minNegatives)
+	}
+	groups := distinctGroups(samples)
+	if groups < gate.minGroups {
+		return fmt.Errorf("insufficient training data: groups=%d min_groups=%d", groups, gate.minGroups)
+	}
+	return nil
+}
+
+func distinctGroups(samples []sample) int {
+	seen := map[string]bool{}
+	for i, sample := range samples {
+		group := sample.group
+		if group == "" {
+			group = fmt.Sprintf("sample:%d", i)
+		}
+		seen[group] = true
+	}
+	return len(seen)
 }
 
 func elapsedHours(now time.Time, then time.Time) float64 {
