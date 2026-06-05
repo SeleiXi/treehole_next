@@ -7,15 +7,19 @@ import (
 	"treehole_next/models"
 )
 
+const featureMaxAge = 15 * time.Minute
+
 type scoredHole struct {
-	hole  *models.Hole
-	score float64
+	hole   *models.Hole
+	score  float64
+	tagIDs []int
 }
 
 func scoreHole(hole *models.Hole, feature *models.HoleFeature, now time.Time) float64 {
 	reply24h := float64(hole.Reply)
 	view24h := float64(hole.View)
-	if feature != nil {
+	freshFeature := feature != nil && feature.UpdatedAt.After(now.Add(-featureMaxAge))
+	if freshFeature {
 		reply24h = float64(feature.Reply24h)
 		view24h = float64(feature.View24h)
 	}
@@ -41,7 +45,7 @@ func scoreHole(hole *models.Hole, feature *models.HoleFeature, now time.Time) fl
 	if hole.Locked || hole.Frozen {
 		score -= 1.0
 	}
-	if feature != nil {
+	if freshFeature {
 		score += 0.35*feature.HotScore + 0.5*feature.QualityScore - 0.25*feature.ControversyScore
 	}
 	return score
