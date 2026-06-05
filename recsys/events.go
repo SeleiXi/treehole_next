@@ -18,12 +18,28 @@ func currentUserID(c *fiber.Ctx) int {
 	return user.ID
 }
 
+func validFeedEventType(eventType string) bool {
+	switch eventType {
+	case models.FeedEventImpression,
+		models.FeedEventOpen,
+		models.FeedEventClick,
+		models.FeedEventReply,
+		models.FeedEventFavorite,
+		models.FeedEventSubscribe,
+		models.FeedEventHide,
+		models.FeedEventReport:
+		return true
+	default:
+		return false
+	}
+}
+
 func LogEvent(c *fiber.Ctx, tx *gorm.DB, holeID int, eventType string, feedMode string, position int, requestID string) {
 	if tx == nil {
 		tx = models.DB
 	}
 	userID := currentUserID(c)
-	if userID == 0 || holeID == 0 || eventType == "" {
+	if userID == 0 || holeID == 0 || !validFeedEventType(eventType) {
 		return
 	}
 	if feedMode == "" {
@@ -51,13 +67,49 @@ func LogImpressions(tx *gorm.DB, c *fiber.Ctx, holes models.Holes, feedMode stri
 	if len(holes) == 0 {
 		return
 	}
+	if tx == nil {
+		tx = models.DB
+	}
+	userID := currentUserID(c)
+	if userID == 0 {
+		return
+	}
 	if feedMode == "" {
 		feedMode = ModeClassic
 	}
-	userID := currentUserID(c)
+	holeIDs := make([]int, 0, len(holes))
+	for _, hole := range holes {
+		if hole.ID != 0 {
+			holeIDs = append(holeIDs, hole.ID)
+		}
+	}
+	if len(holeIDs) == 0 {
+		return
+	}
+
+	seenInRequest := map[int]bool{}
+	if requestID != "" {
+		var existing []int
+		if err := tx.Model(&models.FeedEvent{}).
+			Where("user_id = ?", userID).
+			Where("request_id = ?", requestID).
+			Where("event_type = ?", models.FeedEventImpression).
+			Where("hole_id IN ?", holeIDs).
+			Pluck("hole_id", &existing).Error; err != nil {
+			log.Warn().Err(err).Str("request_id", requestID).Msg("could not dedupe feed impressions")
+		} else {
+			for _, holeID := range existing {
+				seenInRequest[holeID] = true
+			}
+		}
+	}
+
 	now := time.Now()
 	events := make([]models.FeedEvent, 0, len(holes))
 	for i, hole := range holes {
+		if hole.ID == 0 || seenInRequest[hole.ID] {
+			continue
+		}
 		events = append(events, models.FeedEvent{
 			UserID:    userID,
 			HoleID:    hole.ID,
@@ -67,6 +119,9 @@ func LogImpressions(tx *gorm.DB, c *fiber.Ctx, holes models.Holes, feedMode stri
 			RequestID: requestID,
 			CreatedAt: now,
 		})
+	}
+	if len(events) == 0 {
+		return
 	}
 	if err := tx.Create(&events).Error; err != nil {
 		log.Warn().Err(err).Msg("could not write feed impressions")

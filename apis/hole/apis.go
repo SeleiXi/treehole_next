@@ -463,7 +463,7 @@ func GetHole(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	recsys.LogEvent(c, DB, hole.ID, FeedEventClick, c.Query("feed_mode", recsys.ModeClassic), -1, c.Query("request_id"))
+	recsys.LogEvent(c, DB, hole.ID, FeedEventOpen, c.Query("feed_mode", recsys.ModeClassic), -1, c.Query("request_id"))
 
 	return Serialize(c, &hole)
 }
