@@ -100,6 +100,50 @@ func TestHomeFeedSameRequestIDReusesFirstPageSnapshot(t *testing.T) {
 	assert.EqualValues(t, len(first), count)
 }
 
+func TestHomeFeedSmallCorpusSurvivesSaturatedSoftFeedback(t *testing.T) {
+	oldMode := config.Config.Mode
+	oldDB := models.DB
+	config.Config.Mode = "test"
+	t.Cleanup(func() {
+		config.Config.Mode = oldMode
+		models.DB = oldDB
+	})
+
+	db := newHomeFeedServiceTestDB(t)
+	models.DB = db
+
+	now := time.Now()
+	var holes []models.Hole
+	assert.NoError(t, db.Find(&holes).Error)
+	for _, hole := range holes {
+		for i := 0; i < impressionSuppressionThreshold; i++ {
+			assert.NoError(t, db.Create(&models.FeedEvent{
+				UserID:    1,
+				HoleID:    hole.ID,
+				EventType: models.FeedEventImpression,
+				CreatedAt: now,
+			}).Error)
+		}
+		for i := 0; i < openSuppressionThreshold; i++ {
+			assert.NoError(t, db.Create(&models.FeedEvent{
+				UserID:    1,
+				HoleID:    hole.ID,
+				EventType: models.FeedEventOpen,
+				CreatedAt: now,
+			}).Error)
+		}
+	}
+
+	feed, err := GetHomeFeed(nil, HomeFeedRequest{
+		Size:      3,
+		RequestID: "soft-saturated-small-corpus",
+		Now:       now,
+	})
+
+	assert.NoError(t, err)
+	assert.Len(t, feed, 3)
+}
+
 func holeIDs(holes models.Holes) []int {
 	ids := make([]int, 0, len(holes))
 	for _, hole := range holes {

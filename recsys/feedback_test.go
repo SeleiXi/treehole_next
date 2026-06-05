@@ -115,6 +115,76 @@ func TestRecentHardSuppressedOnlyReturnsNegativeFeedback(t *testing.T) {
 	assert.ElementsMatch(t, []int{3, 4}, ids)
 }
 
+func TestRecallCandidatesKeepsSoftFatiguedHoles(t *testing.T) {
+	oldMode := config.Config.Mode
+	config.Config.Mode = "test"
+	t.Cleanup(func() {
+		config.Config.Mode = oldMode
+	})
+
+	db := newRankerTestDB(t)
+	now := time.Now()
+	holes := []models.Hole{
+		{ID: 1, CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour), DivisionID: 1, UserID: 10},
+		{ID: 2, CreatedAt: now.Add(-2 * time.Hour), UpdatedAt: now.Add(-2 * time.Hour), DivisionID: 1, UserID: 11},
+		{ID: 3, CreatedAt: now.Add(-3 * time.Hour), UpdatedAt: now.Add(-3 * time.Hour), DivisionID: 1, UserID: 12},
+	}
+	assert.NoError(t, db.Create(&holes).Error)
+	for _, hole := range holes {
+		for i := 0; i < impressionSuppressionThreshold; i++ {
+			assert.NoError(t, db.Create(&models.FeedEvent{
+				UserID:    1,
+				HoleID:    hole.ID,
+				EventType: models.FeedEventImpression,
+				CreatedAt: now,
+			}).Error)
+		}
+		for i := 0; i < openSuppressionThreshold; i++ {
+			assert.NoError(t, db.Create(&models.FeedEvent{
+				UserID:    1,
+				HoleID:    hole.ID,
+				EventType: models.FeedEventOpen,
+				CreatedAt: now,
+			}).Error)
+		}
+	}
+
+	ids, err := recallCandidates(db, nil, HomeFeedRequest{Size: 3, Now: now}, []int{1})
+
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []int{1, 2, 3}, ids)
+}
+
+func TestRecallCandidatesExcludesOnlyHardNegatives(t *testing.T) {
+	oldMode := config.Config.Mode
+	config.Config.Mode = "test"
+	t.Cleanup(func() {
+		config.Config.Mode = oldMode
+	})
+
+	db := newRankerTestDB(t)
+	now := time.Now()
+	holes := []models.Hole{
+		{ID: 1, CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour), DivisionID: 1, UserID: 10},
+		{ID: 2, CreatedAt: now.Add(-2 * time.Hour), UpdatedAt: now.Add(-2 * time.Hour), DivisionID: 1, UserID: 11},
+		{ID: 3, CreatedAt: now.Add(-3 * time.Hour), UpdatedAt: now.Add(-3 * time.Hour), DivisionID: 1, UserID: 12},
+	}
+	assert.NoError(t, db.Create(&holes).Error)
+	assert.NoError(t, db.Create(&[]models.FeedEvent{
+		{UserID: 1, HoleID: 1, EventType: models.FeedEventImpression, CreatedAt: now},
+		{UserID: 1, HoleID: 1, EventType: models.FeedEventOpen, CreatedAt: now},
+		{UserID: 1, HoleID: 2, EventType: models.FeedEventHide, CreatedAt: now},
+		{UserID: 1, HoleID: 3, EventType: models.FeedEventReport, CreatedAt: now},
+	}).Error)
+
+	ids, err := recallCandidates(db, nil, HomeFeedRequest{Size: 3, Now: now}, []int{1})
+
+	assert.NoError(t, err)
+	assert.Contains(t, ids, 1)
+	assert.NotContains(t, ids, 2)
+	assert.NotContains(t, ids, 3)
+}
+
 func TestRankCandidatesFallsBackToSoftSuppressedHoles(t *testing.T) {
 	oldMode := config.Config.Mode
 	config.Config.Mode = "test"
