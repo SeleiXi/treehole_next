@@ -21,6 +21,17 @@ func GetHomeFeed(c *fiber.Ctx, req HomeFeedRequest) (models.Holes, error) {
 
 	var holes models.Holes
 	err := models.DB.Transaction(func(tx *gorm.DB) error {
+		if req.CursorID == nil {
+			cached, ok, err := loadFeedSnapshotFirstPage(tx, c, userID, req.RequestID, req.PageSize(), req.Now)
+			if err != nil {
+				return err
+			}
+			if ok {
+				holes = cached
+				logImpressions(tx, c, holes, req.RequestID)
+				return nil
+			}
+		}
 		if req.CursorID != nil {
 			cached, ok, err := loadFeedSnapshotPage(tx, c, userID, req.RequestID, *req.CursorID, req.PageSize(), req.Now)
 			if err != nil {

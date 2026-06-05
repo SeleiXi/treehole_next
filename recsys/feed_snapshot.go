@@ -56,7 +56,27 @@ func loadFeedSnapshotPage(tx *gorm.DB, c *fiber.Ctx, userID int, requestID strin
 	if end > len(snapshot.items) {
 		end = len(snapshot.items)
 	}
-	pageItems := snapshot.items[start:end]
+	return loadFeedSnapshotItems(tx, c, snapshot.items[start:end])
+}
+
+func loadFeedSnapshotFirstPage(tx *gorm.DB, c *fiber.Ctx, userID int, requestID string, size int, now time.Time) (models.Holes, bool, error) {
+	if userID == 0 || requestID == "" {
+		return nil, false, nil
+	}
+	snapshot, ok := getFeedSnapshot(userID, requestID, now)
+	if !ok {
+		return nil, false, nil
+	}
+	if size > len(snapshot.items) {
+		size = len(snapshot.items)
+	}
+	return loadFeedSnapshotItems(tx, c, snapshot.items[:size])
+}
+
+func loadFeedSnapshotItems(tx *gorm.DB, c *fiber.Ctx, pageItems []feedSnapshotItem) (models.Holes, bool, error) {
+	if len(pageItems) == 0 {
+		return models.Holes{}, true, nil
+	}
 	ids := make([]int, 0, len(pageItems))
 	scores := make(map[int]float64, len(pageItems))
 	for _, item := range pageItems {

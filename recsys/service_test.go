@@ -66,6 +66,48 @@ func TestHomeFeedMissingSnapshotFallsBackWithScoreCursor(t *testing.T) {
 	assert.LessOrEqual(t, len(holes), 2)
 }
 
+func TestHomeFeedSameRequestIDReusesFirstPageSnapshot(t *testing.T) {
+	oldMode := config.Config.Mode
+	oldDB := models.DB
+	config.Config.Mode = "test"
+	t.Cleanup(func() {
+		config.Config.Mode = oldMode
+		models.DB = oldDB
+	})
+
+	db := newHomeFeedServiceTestDB(t)
+	models.DB = db
+
+	now := time.Now()
+	first, err := GetHomeFeed(nil, HomeFeedRequest{
+		Size:      2,
+		RequestID: "same-request",
+		Now:       now,
+	})
+	assert.NoError(t, err)
+	assert.Len(t, first, 2)
+
+	second, err := GetHomeFeed(nil, HomeFeedRequest{
+		Size:      2,
+		RequestID: "same-request",
+		Now:       now.Add(time.Second),
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, holeIDs(first), holeIDs(second))
+
+	var count int64
+	assert.NoError(t, db.Model(&models.FeedEvent{}).Where("request_id = ?", "same-request").Count(&count).Error)
+	assert.EqualValues(t, len(first), count)
+}
+
+func holeIDs(holes models.Holes) []int {
+	ids := make([]int, 0, len(holes))
+	for _, hole := range holes {
+		ids = append(ids, hole.ID)
+	}
+	return ids
+}
+
 func newHomeFeedServiceTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
