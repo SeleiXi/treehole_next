@@ -56,10 +56,36 @@ func TestLogImpressionsDedupesRequest(t *testing.T) {
 	var count int64
 	assert.NoError(t, db.Model(&models.FeedEvent{}).Count(&count).Error)
 	assert.EqualValues(t, 2, count)
+	var events []models.FeedEvent
+	assert.NoError(t, db.Find(&events).Error)
+	for _, event := range events {
+		assert.NotNil(t, event.RequestDedupKey)
+	}
 
 	LogImpressions(db, nil, holes, ModeRecommend, "request-2")
 	assert.NoError(t, db.Model(&models.FeedEvent{}).Count(&count).Error)
 	assert.EqualValues(t, 4, count)
+}
+
+func TestLogEventDedupesRequestKey(t *testing.T) {
+	oldMode := config.Config.Mode
+	config.Config.Mode = "test"
+	t.Cleanup(func() {
+		config.Config.Mode = oldMode
+	})
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		NamingStrategy: schema.NamingStrategy{SingularTable: true},
+	})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.FeedEvent{}))
+
+	LogEvent(nil, db, 1, models.FeedEventOpen, ModeRecommend, -1, "open-request-1")
+	LogEvent(nil, db, 1, models.FeedEventOpen, ModeRecommend, -1, "open-request-1")
+
+	var count int64
+	assert.NoError(t, db.Model(&models.FeedEvent{}).Count(&count).Error)
+	assert.EqualValues(t, 1, count)
 }
 
 func TestRecentHardSuppressedOnlyReturnsNegativeFeedback(t *testing.T) {

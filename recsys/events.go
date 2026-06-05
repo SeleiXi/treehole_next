@@ -1,11 +1,14 @@
 package recsys
 
 import (
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"treehole_next/models"
 )
@@ -34,6 +37,15 @@ func validFeedEventType(eventType string) bool {
 	}
 }
 
+func feedEventDedupKey(userID int, holeID int, eventType string, requestID string) *string {
+	requestID = strings.TrimSpace(requestID)
+	if userID == 0 || holeID == 0 || eventType == "" || requestID == "" {
+		return nil
+	}
+	key := strconv.Itoa(userID) + ":" + eventType + ":" + requestID + ":" + strconv.Itoa(holeID)
+	return &key
+}
+
 func LogEvent(c *fiber.Ctx, tx *gorm.DB, holeID int, eventType string, feedMode string, position int, requestID string) {
 	if tx == nil {
 		tx = models.DB
@@ -52,9 +64,15 @@ func LogEvent(c *fiber.Ctx, tx *gorm.DB, holeID int, eventType string, feedMode 
 		FeedMode:  feedMode,
 		Position:  position,
 		RequestID: requestID,
+		RequestDedupKey: feedEventDedupKey(
+			userID,
+			holeID,
+			eventType,
+			requestID,
+		),
 		CreatedAt: time.Now(),
 	}
-	if err := tx.Create(&event).Error; err != nil {
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&event).Error; err != nil {
 		log.Warn().Err(err).Int("hole_id", holeID).Str("event_type", eventType).Msg("could not write feed event")
 	}
 }
@@ -110,20 +128,22 @@ func LogImpressions(tx *gorm.DB, c *fiber.Ctx, holes models.Holes, feedMode stri
 		if hole.ID == 0 || seenInRequest[hole.ID] {
 			continue
 		}
+		seenInRequest[hole.ID] = true
 		events = append(events, models.FeedEvent{
-			UserID:    userID,
-			HoleID:    hole.ID,
-			EventType: models.FeedEventImpression,
-			FeedMode:  feedMode,
-			Position:  i,
-			RequestID: requestID,
-			CreatedAt: now,
+			UserID:          userID,
+			HoleID:          hole.ID,
+			EventType:       models.FeedEventImpression,
+			FeedMode:        feedMode,
+			Position:        i,
+			RequestID:       requestID,
+			RequestDedupKey: feedEventDedupKey(userID, hole.ID, models.FeedEventImpression, requestID),
+			CreatedAt:       now,
 		})
 	}
 	if len(events) == 0 {
 		return
 	}
-	if err := tx.Create(&events).Error; err != nil {
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&events).Error; err != nil {
 		log.Warn().Err(err).Msg("could not write feed impressions")
 	}
 }
