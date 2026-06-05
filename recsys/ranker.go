@@ -32,11 +32,12 @@ func rankCandidates(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Time) ([]
 		if feedback.shouldSuppress(hole.ID) {
 			continue
 		}
+		tagIDs := holeTags[hole.ID]
 		score := scoreHole(hole, features[hole.ID], now)
-		score += feedback.affinityScore(hole, holeTags[hole.ID])
+		score += feedback.affinityScore(hole, tagIDs)
 		score -= feedback.penalty(hole.ID)
 		hole.SortScore = &score
-		scored = append(scored, scoredHole{hole: hole, score: score})
+		scored = append(scored, scoredHole{hole: hole, score: score, tagIDs: tagIDs})
 	}
 
 	sort.SliceStable(scored, func(i, j int) bool {
