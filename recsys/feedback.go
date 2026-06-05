@@ -10,14 +10,16 @@ import (
 )
 
 const (
-	clickLookback      = 30 * 24 * time.Hour
-	negativeLookback   = 90 * 24 * time.Hour
-	impressionLookback = 7 * 24 * time.Hour
+	openLookback                   = 7 * 24 * time.Hour
+	negativeLookback               = 90 * 24 * time.Hour
+	impressionLookback             = 7 * 24 * time.Hour
+	openSuppressionThreshold       = 4
+	impressionSuppressionThreshold = 3
 )
 
 type userFeedback struct {
 	userID      int
-	clicked     map[int]bool
+	opened      map[int]int
 	negative    map[int]bool
 	impressions map[int]int
 	divisions   map[int]float64
@@ -26,7 +28,7 @@ type userFeedback struct {
 
 func loadUserFeedback(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Time) userFeedback {
 	feedback := userFeedback{
-		clicked:     map[int]bool{},
+		opened:      map[int]int{},
 		negative:    map[int]bool{},
 		impressions: map[int]int{},
 		divisions:   map[int]float64{},
@@ -51,9 +53,9 @@ func loadUserFeedback(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Time) u
 	}
 	for _, event := range events {
 		switch event.EventType {
-		case models.FeedEventClick:
-			if event.CreatedAt.After(now.Add(-clickLookback)) {
-				feedback.clicked[event.HoleID] = true
+		case models.FeedEventOpen, models.FeedEventClick:
+			if event.CreatedAt.After(now.Add(-openLookback)) {
+				feedback.opened[event.HoleID]++
 			}
 		case models.FeedEventHide, models.FeedEventReport:
 			feedback.negative[event.HoleID] = true
@@ -68,17 +70,16 @@ func loadUserFeedback(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Time) u
 }
 
 func (feedback userFeedback) shouldSuppress(holeID int) bool {
-	return feedback.clicked[holeID] || feedback.negative[holeID] || feedback.impressions[holeID] >= 3
+	return feedback.negative[holeID] ||
+		feedback.impressions[holeID] >= impressionSuppressionThreshold ||
+		feedback.opened[holeID] >= openSuppressionThreshold
 }
 
 func (feedback userFeedback) penalty(holeID int) float64 {
 	if feedback.negative[holeID] {
 		return 1_000_000
 	}
-	if feedback.clicked[holeID] {
-		return 10_000
-	}
-	return float64(feedback.impressions[holeID]) * 1.75
+	return float64(feedback.opened[holeID])*2.25 + float64(feedback.impressions[holeID])*1.75
 }
 
 func (feedback userFeedback) affinityScore(hole *models.Hole, tagIDs []int) float64 {
@@ -104,12 +105,14 @@ func loadAffinities(tx *gorm.DB, feedback *userFeedback, now time.Time) {
 		Joins("JOIN hole ON hole.id = feed_event.hole_id").
 		Where("feed_event.user_id = ?", feedback.userID).
 		Where("feed_event.event_type IN ?", []string{
+			models.FeedEventOpen,
 			models.FeedEventClick,
 			models.FeedEventReply,
 			models.FeedEventFavorite,
 			models.FeedEventSubscribe,
 		}).
 		Where("feed_event.created_at >= ?", now.Add(-negativeLookback)).
+		Order("feed_event.created_at DESC").
 		Limit(300).
 		Find(&rows).Error
 	if err != nil || len(rows) == 0 {
@@ -137,7 +140,7 @@ func positiveEventWeight(eventType string) float64 {
 		return 1.2
 	case models.FeedEventReply:
 		return 1.0
-	case models.FeedEventClick:
+	case models.FeedEventOpen, models.FeedEventClick:
 		return 0.35
 	default:
 		return 0
@@ -157,14 +160,20 @@ func RecentSuppressedHoleIDs(tx *gorm.DB, c *fiber.Ctx, now time.Time) []int {
 	if feedback.userID == 0 {
 		return nil
 	}
-	result := make([]int, 0, len(feedback.clicked)+len(feedback.negative))
+	result := make([]int, 0, len(feedback.opened)+len(feedback.negative)+len(feedback.impressions))
 	seen := map[int]bool{}
-	for id := range feedback.clicked {
+	for id := range feedback.negative {
 		seen[id] = true
 		result = append(result, id)
 	}
-	for id := range feedback.negative {
-		if !seen[id] {
+	for id, count := range feedback.impressions {
+		if count >= impressionSuppressionThreshold && !seen[id] {
+			seen[id] = true
+			result = append(result, id)
+		}
+	}
+	for id, count := range feedback.opened {
+		if count >= openSuppressionThreshold && !seen[id] {
 			result = append(result, id)
 		}
 	}

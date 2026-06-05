@@ -7,6 +7,7 @@ import (
 
 	. "treehole_next/config"
 	. "treehole_next/models"
+	"treehole_next/recsys"
 	"treehole_next/utils"
 
 	"github.com/stretchr/testify/assert"
@@ -83,16 +84,21 @@ func TestListHomePageRecommendFeed(t *testing.T) {
 
 	testAPIModel(t, "get", "/api/holes/"+strconv.Itoa(holes[0].ID), 200, &Hole{})
 
+	var openEvents []FeedEvent
+	err = DB.Where("hole_id = ? AND event_type = ?", holes[0].ID, FeedEventOpen).Find(&openEvents).Error
+	assert.Nil(t, err)
+	assert.NotEmpty(t, openEvents)
+
 	var refreshed Holes
 	testAPIModelWithQuery(t, "get", "/api/holes/_homepage", 200, &refreshed, Map{
 		"order":      "recommend",
 		"length":     5,
-		"request_id": "test-feed-after-click",
+		"request_id": "test-feed-after-open",
 	})
-	assert.NotContains(t, utils.Models2IDSlice(refreshed), holes[0].ID)
+	assert.NotEmpty(t, refreshed)
 }
 
-func TestFeedbackAwareScoreSortSuppressesClickedHoles(t *testing.T) {
+func TestFeedbackAwareScoreSortSuppressesExplicitNegatives(t *testing.T) {
 	var holes Holes
 	testAPIModelWithQuery(t, "get", "/api/holes", 200, &holes, Map{
 		"sort_strategy": "hot",
@@ -102,14 +108,15 @@ func TestFeedbackAwareScoreSortSuppressesClickedHoles(t *testing.T) {
 	assert.NotEmpty(t, holes)
 
 	testAPIModel(t, "get", "/api/holes/"+strconv.Itoa(holes[0].ID), 200, &Hole{})
+	recsys.LogEvent(nil, DB, holes[0].ID, FeedEventReport, recsys.ModeClassic, -1, "test-hot-report")
 
-	var afterClick Holes
-	testAPIModelWithQuery(t, "get", "/api/holes", 200, &afterClick, Map{
+	var afterReport Holes
+	testAPIModelWithQuery(t, "get", "/api/holes", 200, &afterReport, Map{
 		"sort_strategy": "hot",
 		"length":        3,
-		"request_id":    "test-hot-after-click",
+		"request_id":    "test-hot-after-report",
 	})
-	assert.NotContains(t, utils.Models2IDSlice(afterClick), holes[0].ID)
+	assert.NotContains(t, utils.Models2IDSlice(afterReport), holes[0].ID)
 }
 
 func TestListHolesByTag(t *testing.T) {

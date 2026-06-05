@@ -59,7 +59,7 @@ func ListFloorsInAHole(c *fiber.Ctx) error {
 	if result.Error != nil {
 		return result.Error
 	}
-	recsys.LogEvent(c, DB, holeID, FeedEventClick, c.Query("feed_mode", recsys.ModeClassic), -1, c.Query("request_id"))
+	recsys.LogEvent(c, DB, holeID, FeedEventOpen, c.Query("feed_mode", recsys.ModeClassic), -1, c.Query("request_id"))
 
 	return Serialize(c, &floors)
 }

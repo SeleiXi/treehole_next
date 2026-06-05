@@ -451,7 +451,7 @@ func recentSuppressedHoleIDs(tx *gorm.DB, c *fiber.Ctx, strategy string) []int {
 	var ids []int
 	err = tx.Model(&FeedEvent{}).
 		Where("user_id = ?", user.ID).
-		Where("event_type IN ?", []string{FeedEventClick, FeedEventHide, FeedEventReport}).
+		Where("event_type IN ?", []string{FeedEventHide, FeedEventReport}).
 		Where("created_at >= ?", time.Now().Add(-30*24*time.Hour)).
 		Distinct().
 		Pluck("hole_id", &ids).Error
