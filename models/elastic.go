@@ -16,6 +16,7 @@ import (
 	"github.com/elastic/go-elasticsearch/v8/typedapi/types/enums/sortorder"
 	"github.com/opentreehole/go-common"
 	"github.com/rs/zerolog/log"
+	"gorm.io/gorm"
 
 	"treehole_next/config"
 	"treehole_next/utils"
@@ -110,6 +111,7 @@ func Search(c *fiber.Ctx, keyword string, size, offset int, accurate bool, start
 	if ES == nil {
 		return SearchOld(c, keyword, size, offset, startTime, endTime)
 	}
+	fetchSize := expandedSearchFetchSize(size)
 
 	// our query design:
 	// {
@@ -193,7 +195,7 @@ func Search(c *fiber.Ctx, keyword string, size, offset int, accurate bool, start
 
 	res, err := ES.Search().
 		Index(IndexName).From(offset).
-		Size(size).Query(&query).
+		Size(fetchSize).Query(&query).
 		Highlight(highlight).
 		Sort(
 			types.SortOptions{
@@ -272,6 +274,7 @@ func Search(c *fiber.Ctx, keyword string, size, offset int, accurate bool, start
 		log.Err(err).Msg("error preprocessing floors")
 		return nil, err
 	}
+	floors = applySearchFeedbackFatigue(DB, c, floors, size, time.Now())
 
 	highlightedFloors := make(HighlightedFloors, len(floors))
 	for i, floor := range floors {
@@ -300,6 +303,7 @@ func Search(c *fiber.Ctx, keyword string, size, offset int, accurate bool, start
 // It is used when ElasticSearch is not available. (Not recommended)
 func SearchOld(c *fiber.Ctx, keyword string, size, offset int, startTimeUnix *int64, endTimeUnix *int64) (HighlightedFloors, error) {
 	floors := Floors{}
+	fetchSize := expandedSearchFetchSize(size)
 	var startTime, endTime *time.Time
 	if startTimeUnix != nil {
 		start := time.Unix(*startTimeUnix, 0)
@@ -309,7 +313,7 @@ func SearchOld(c *fiber.Ctx, keyword string, size, offset int, startTimeUnix *in
 		end := time.Unix(*endTimeUnix, 0)
 		endTime = &end
 	}
-	querySet, err := floors.MakeQuerySetWithTimeRange(nil, &offset, &size, startTime, endTime, c)
+	querySet, err := floors.MakeQuerySetWithTimeRange(nil, &offset, &fetchSize, startTime, endTime, c)
 	if err != nil {
 		log.Err(err).Msg("error building floor query set with time range")
 		return nil, err
@@ -324,12 +328,68 @@ func SearchOld(c *fiber.Ctx, keyword string, size, offset int, startTimeUnix *in
 		return nil, err
 	}
 
+	floors = applySearchFeedbackFatigue(DB, c, floors, size, time.Now())
 	result, err := PreprocessAndHighlight(c, floors, keyword)
 	if err != nil {
 		return nil, err
 	}
 
 	return result, nil
+}
+
+func expandedSearchFetchSize(size int) int {
+	if size <= 0 {
+		return size
+	}
+	fetchSize := size * 4
+	if fetchSize < 20 {
+		fetchSize = 20
+	}
+	if fetchSize > 200 {
+		fetchSize = 200
+	}
+	return fetchSize
+}
+
+func applySearchFeedbackFatigue(tx *gorm.DB, c *fiber.Ctx, floors Floors, limit int, now time.Time) Floors {
+	if len(floors) == 0 {
+		return floors
+	}
+	holeIDs := make([]int, 0, len(floors))
+	seen := map[int]bool{}
+	for _, floor := range floors {
+		if floor == nil || floor.HoleID == 0 || seen[floor.HoleID] {
+			continue
+		}
+		seen[floor.HoleID] = true
+		holeIDs = append(holeIDs, floor.HoleID)
+	}
+	suppression := LoadHoleFeedbackSuppression(tx, c, holeIDs, now)
+	if len(suppression.HardIDs) == 0 && len(suppression.SoftIDs) == 0 {
+		return trimSearchFloors(floors, limit)
+	}
+
+	fresh := make(Floors, 0, len(floors))
+	soft := make(Floors, 0)
+	for _, floor := range floors {
+		if floor == nil || suppression.Hard[floor.HoleID] {
+			continue
+		}
+		if suppression.Soft[floor.HoleID] {
+			soft = append(soft, floor)
+			continue
+		}
+		fresh = append(fresh, floor)
+	}
+	fresh = append(fresh, soft...)
+	return trimSearchFloors(fresh, limit)
+}
+
+func trimSearchFloors(floors Floors, limit int) Floors {
+	if limit >= 0 && len(floors) > limit {
+		return floors[:limit]
+	}
+	return floors
 }
 
 func PreprocessAndHighlight(c *fiber.Ctx, floors Floors, keyword string) (HighlightedFloors, error) {
