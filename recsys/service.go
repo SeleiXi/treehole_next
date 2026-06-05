@@ -45,7 +45,7 @@ func GetHomeFeed(c *fiber.Ctx, req HomeFeedRequest) (models.Holes, error) {
 		if err != nil {
 			return err
 		}
-		scored, err := rankCandidates(tx, c, candidateIDs, req.Now)
+		scored, err := rankCandidatesForSize(tx, c, candidateIDs, req.Now, req.PageSize())
 		if err != nil {
 			return err
 		}

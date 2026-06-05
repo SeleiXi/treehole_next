@@ -75,6 +75,10 @@ func (feedback userFeedback) shouldSuppress(holeID int) bool {
 		feedback.opened[holeID] >= openSuppressionThreshold
 }
 
+func (feedback userFeedback) shouldHardSuppress(holeID int) bool {
+	return feedback.negative[holeID]
+}
+
 func (feedback userFeedback) penalty(holeID int) float64 {
 	if feedback.negative[holeID] {
 		return 1_000_000
@@ -178,4 +182,22 @@ func RecentSuppressedHoleIDs(tx *gorm.DB, c *fiber.Ctx, now time.Time) []int {
 		}
 	}
 	return result
+}
+
+func RecentHardSuppressedHoleIDs(tx *gorm.DB, c *fiber.Ctx, now time.Time) []int {
+	userID := currentUserID(c)
+	if userID == 0 {
+		return nil
+	}
+	var ids []int
+	err := tx.Model(&models.FeedEvent{}).
+		Where("user_id = ?", userID).
+		Where("event_type IN ?", []string{models.FeedEventHide, models.FeedEventReport}).
+		Where("created_at >= ?", now.Add(-negativeLookback)).
+		Distinct().
+		Pluck("hole_id", &ids).Error
+	if err != nil {
+		return nil
+	}
+	return ids
 }
