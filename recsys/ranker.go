@@ -11,6 +11,10 @@ import (
 )
 
 func rankCandidates(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Time) ([]scoredHole, error) {
+	return rankCandidatesForSize(tx, c, holeIDs, now, 1)
+}
+
+func rankCandidatesForSize(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Time, minResults int) ([]scoredHole, error) {
 	if len(holeIDs) == 0 {
 		return nil, nil
 	}
@@ -28,8 +32,9 @@ func rankCandidates(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Time) ([]
 	holeTags := loadCandidateTags(tx, holeIDs)
 
 	scored := make([]scoredHole, 0, len(holes))
+	softSuppressed := make([]scoredHole, 0)
 	for _, hole := range holes {
-		if feedback.shouldSuppress(hole.ID) {
+		if feedback.shouldHardSuppress(hole.ID) {
 			continue
 		}
 		tagIDs := holeTags[hole.ID]
@@ -37,16 +42,32 @@ func rankCandidates(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Time) ([]
 		score += feedback.affinityScore(hole, tagIDs)
 		score -= feedback.penalty(hole.ID)
 		hole.SortScore = &score
-		scored = append(scored, scoredHole{hole: hole, score: score, tagIDs: tagIDs})
+		item := scoredHole{hole: hole, score: score, tagIDs: tagIDs}
+		if feedback.shouldSuppress(hole.ID) {
+			softSuppressed = append(softSuppressed, item)
+			continue
+		}
+		scored = append(scored, item)
 	}
 
+	sortScored(scored)
+	sortScored(softSuppressed)
+	if minResults <= 0 {
+		minResults = 1
+	}
+	if len(scored) < minResults {
+		scored = append(scored, softSuppressed...)
+	}
+	return scored, nil
+}
+
+func sortScored(scored []scoredHole) {
 	sort.SliceStable(scored, func(i, j int) bool {
 		if scored[i].score == scored[j].score {
 			return scored[i].hole.ID > scored[j].hole.ID
 		}
 		return scored[i].score > scored[j].score
 	})
-	return scored, nil
 }
 
 func loadCandidateTags(tx *gorm.DB, holeIDs []int) map[int][]int {

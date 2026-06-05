@@ -3,6 +3,7 @@ package models
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"golang.org/x/exp/slices"
@@ -149,6 +150,25 @@ func GetCurrLoginUser(c *fiber.Ctx) (*User, error) {
 		return c.Locals("user").(*User), nil
 	}
 
+	if config.Config.EnableTestLogin && isTestLoginToken(c) {
+		userID := config.Config.TestLoginUserID
+		if userID <= 0 {
+			userID = 1000001
+		}
+		if err := user.LoadUserByID(userID); err != nil {
+			return nil, err
+		}
+		user.ID = userID
+		user.IsAdmin = false
+		user.HasAnsweredQuestions = true
+		user.Permission.Admin = minTime
+		user.Permission.Silent = user.BanDivision
+		user.Permission.OffenseCount = user.OffenceCount
+		user.Nickname = "test-user"
+		c.Locals("user", user)
+		return user, nil
+	}
+
 	// get id
 	userID, err := common.GetUserID(c)
 	if err != nil {
@@ -180,6 +200,23 @@ func GetCurrLoginUser(c *fiber.Ctx) (*User, error) {
 	c.Locals("user", user)
 
 	return user, err
+}
+
+func isTestLoginToken(c *fiber.Ctx) bool {
+	auth := strings.TrimSpace(c.Get("Authorization"))
+	token := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+	return token == config.Config.TestAccessToken || token == config.Config.TestRefreshToken
+}
+
+func GetCurrUserID(c *fiber.Ctx) (int, error) {
+	if config.Config.EnableTestLogin && isTestLoginToken(c) {
+		userID := config.Config.TestLoginUserID
+		if userID <= 0 {
+			return 1000001, nil
+		}
+		return userID, nil
+	}
+	return common.GetUserID(c)
 }
 
 // LoadUserByID load user from database.

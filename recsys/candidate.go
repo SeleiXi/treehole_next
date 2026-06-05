@@ -36,7 +36,7 @@ func recallCandidates(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionID
 	}
 
 	set := newCandidateSet()
-	suppressedIDs := RecentSuppressedHoleIDs(tx, c, req.Now)
+	suppressedIDs := RecentHardSuppressedHoleIDs(tx, c, req.Now)
 	recalls := []func() ([]int, error){
 		func() ([]int, error) { return recallActive(tx, c, req, divisionIDs, suppressedIDs, poolSize/2) },
 		func() ([]int, error) { return recallFresh(tx, c, req, divisionIDs, suppressedIDs, poolSize/3) },
