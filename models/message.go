@@ -16,7 +16,7 @@ type Message struct {
 	CreatedAt   time.Time   `json:"time_created"`
 	UpdatedAt   time.Time   `json:"time_updated"`
 	Title       string      `json:"message" gorm:"size:1024;not null"`
-	Description string      `json:"description" gorm:"size:65536;not null"`
+	Description string      `json:"description" gorm:"type:mediumtext;not null"`
 	Data        any         `json:"data" gorm:"serializer:json" `
 	Type        MessageType `json:"code" gorm:"size:16;not null"`
 	URL            string      `json:"url" gorm:"size:64;default:'';not null"`
