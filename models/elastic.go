@@ -17,6 +17,7 @@ import (
 	"github.com/opentreehole/go-common"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"treehole_next/config"
 	"treehole_next/utils"
@@ -319,6 +320,8 @@ func SearchOld(c *fiber.Ctx, keyword string, size, offset int, startTimeUnix *in
 		return nil, err
 	}
 
+	now := time.Now()
+	querySet = applySearchFeedbackQuerySort(querySet, c, now)
 	err = querySet.
 		Where("content like ?", "%"+keyword+"%").
 		Where("hole_id in (?)", DB.Table("hole").Select("id").Where("hidden = false")).
@@ -349,6 +352,31 @@ func expandedSearchFetchSize(size int) int {
 		fetchSize = 200
 	}
 	return fetchSize
+}
+
+func applySearchFeedbackQuerySort(querySet *gorm.DB, c *fiber.Ctx, now time.Time) *gorm.DB {
+	userID := feedbackUserID(c)
+	if userID == 0 {
+		return querySet
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+
+	querySet = querySet.Where(
+		"NOT EXISTS (SELECT 1 FROM feed_event fe WHERE fe.user_id = ? AND fe.hole_id = floor.hole_id AND fe.event_type IN ? AND fe.created_at >= ?)",
+		userID,
+		[]string{FeedEventHide, FeedEventReport},
+		now.Add(-feedbackNegativeLookback),
+	)
+	return querySet.Order(clause.Expr{
+		SQL: "CASE WHEN EXISTS (SELECT 1 FROM feed_event fe WHERE fe.user_id = ? AND fe.hole_id = floor.hole_id AND fe.event_type IN ? AND fe.created_at >= ?) THEN 1 ELSE 0 END ASC",
+		Vars: []any{
+			userID,
+			[]string{FeedEventOpen, FeedEventClick},
+			now.Add(-feedbackOpenLookback),
+		},
+	})
 }
 
 func applySearchFeedbackFatigue(tx *gorm.DB, c *fiber.Ctx, floors Floors, limit int, now time.Time) Floors {
