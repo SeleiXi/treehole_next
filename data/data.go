@@ -26,6 +26,10 @@ func init() {
 func initNamesMapping() error {
 	NamesMappingData, err := os.ReadFile(`data/names_mapping.json`)
 	if err != nil {
+		if os.IsNotExist(err) {
+			NamesMapping = map[string]string{}
+			return nil
+		}
 		return err
 	}
 

@@ -81,6 +81,20 @@ func InitConfig() { // load config from environment variables
 	if err := env.Parse(&Config); err != nil {
 		log.Fatal().Err(err).Send()
 	}
-	log.Info().Any("config", Config).Msg("init config")
+	log.Info().
+		Str("mode", Config.Mode).
+		Bool("debug", Config.Debug).
+		Bool("db_configured", Config.DbURL != "").
+		Int("mysql_replica_count", len(Config.MysqlReplicaURLs)).
+		Bool("redis_configured", Config.RedisURL != "").
+		Bool("auth_configured", Config.AuthUrl != "").
+		Bool("elasticsearch_configured", Config.ElasticsearchUrl != "").
+		Bool("open_search", Config.OpenSearch).
+		Bool("open_sensitive_check", Config.OpenSensitiveCheck).
+		Bool("enable_test_login", Config.EnableTestLogin).
+		Int("test_login_user_id", Config.TestLoginUserID).
+		Bool("test_access_token_configured", Config.TestAccessToken != "").
+		Bool("test_refresh_token_configured", Config.TestRefreshToken != "").
+		Msg("init config")
 	DynamicConfig.OpenSearch.Store(Config.OpenSearch)
 }
