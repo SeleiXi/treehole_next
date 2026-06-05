@@ -116,6 +116,11 @@ This still runs migrations and serves API requests, but avoids duplicate purge,
 feature-refresh, and message-cleanup jobs while validating the new
 `search_event` schema and request path.
 
+Production image builds use the `production` build tag, which disables dev/test
+SQLite initialization and removes `go-sqlite3`/cgo from the production
+dependency graph. This is intended to make candidate image builds and shadow
+validation reproducible on low-memory hosts.
+
 After at least several days of `search_event` collection, rerun:
 
 ```bash

@@ -1,18 +1,16 @@
-FROM golang:1.25-alpine as builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
 COPY go.mod go.sum ./
-RUN apk add --no-cache --virtual .build-deps \
+RUN apk add --no-cache \
         ca-certificates \
-        tzdata \
-        gcc \
-        g++ &&  \
+        tzdata &&  \
     go mod download
 
 COPY . .
 
-RUN go build -ldflags "-s -w" -o treehole
+RUN CGO_ENABLED=0 go build -tags production -ldflags "-s -w" -o treehole
 
 FROM alpine
 
