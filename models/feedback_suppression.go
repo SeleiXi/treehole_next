@@ -3,6 +3,8 @@ package models
 import (
 	"time"
 
+	"treehole_next/config"
+
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
@@ -26,10 +28,13 @@ func feedbackUserID(c *fiber.Ctx) int {
 		}
 	}
 	user, err := GetCurrLoginUser(c)
-	if err != nil || user == nil {
-		return 0
+	if err == nil && user != nil && user.ID != 0 {
+		return user.ID
 	}
-	return user.ID
+	if config.Config.EnableTestLogin && config.Config.TestLoginUserID != 0 {
+		return config.Config.TestLoginUserID
+	}
+	return 0
 }
 
 func LoadHoleFeedbackSuppression(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Time) HoleFeedbackSuppression {
