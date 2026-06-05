@@ -1,7 +1,9 @@
 package models
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"treehole_next/config"
 
@@ -53,4 +55,53 @@ func TestLogSearchImpressionsHashesQueryAndDedupesRequest(t *testing.T) {
 	assert.Equal(t, 8, events[0].QueryLength)
 	assert.Equal(t, 2, events[0].QueryTermCount)
 	assert.NotNil(t, events[0].RequestDedupKey)
+}
+
+func TestLogSearchActionCopiesImpressionContextAndDedupes(t *testing.T) {
+	oldLogging := config.Config.SearchEventLogging
+	config.Config.SearchEventLogging = true
+	t.Cleanup(func() {
+		config.Config.SearchEventLogging = oldLogging
+	})
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		NamingStrategy: schema.NamingStrategy{SingularTable: true},
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&SearchEvent{}))
+
+	score := 3.25
+	queryHash := strings.Repeat("a", 64)
+	require.NoError(t, db.Create(&SearchEvent{
+		UserID:         42,
+		QueryHash:      queryHash,
+		QueryLength:    4,
+		QueryTermCount: 1,
+		Accurate:       true,
+		Source:         "elastic",
+		FloorID:        10,
+		HoleID:         1,
+		EventType:      SearchEventImpression,
+		Position:       2,
+		BaseRank:       12,
+		BaseScore:      &score,
+		RequestID:      "search-request-1",
+		CreatedAt:      time.Now(),
+	}).Error)
+
+	LogSearchAction(db, 42, 1, SearchEventOpen, "search-request-1")
+	LogSearchAction(db, 42, 1, SearchEventOpen, "search-request-1")
+	LogSearchAction(db, 42, 1, SearchEventOpen, "")
+
+	var actions []SearchEvent
+	require.NoError(t, db.Where("event_type = ?", SearchEventOpen).Find(&actions).Error)
+	require.Len(t, actions, 1)
+	assert.Equal(t, queryHash, actions[0].QueryHash)
+	assert.Equal(t, 10, actions[0].FloorID)
+	assert.Equal(t, 1, actions[0].HoleID)
+	assert.Equal(t, 2, actions[0].Position)
+	assert.Equal(t, 12, actions[0].BaseRank)
+	require.NotNil(t, actions[0].BaseScore)
+	assert.Equal(t, score, *actions[0].BaseScore)
+	assert.NotNil(t, actions[0].RequestDedupKey)
 }

@@ -111,7 +111,7 @@ func AddFavorite(c *fiber.Ctx) error {
 		if err != nil {
 			return err
 		}
-		recsys.LogEvent(c, tx, body.HoleID, FeedEventFavorite, recsys.ModeClassic, -1, "")
+		recsys.LogEvent(c, tx, body.HoleID, FeedEventFavorite, recsys.ModeClassic, -1, c.Query("request_id"))
 
 		// create response
 		data, err = UserGetFavoriteData(tx, userID)

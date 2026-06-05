@@ -164,14 +164,45 @@ func loadSearchSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 	var rows []searchRow
 	err := db.Raw(`
 		SELECT
-			CASE WHEN EXISTS (
-				SELECT 1 FROM feed_event fe
-				WHERE fe.user_id = se.user_id
-					AND fe.hole_id = se.hole_id
-					AND fe.event_type IN ('open', 'click', 'reply', 'favorite', 'subscribe')
-					AND fe.created_at >= se.created_at
-					AND fe.created_at < DATE_ADD(se.created_at, INTERVAL 30 MINUTE)
-			) THEN 1 ELSE 0 END AS label,
+			COALESCE(
+				(
+					SELECT MAX(CASE
+						WHEN sae.event_type IN ('favorite', 'subscribe') THEN 1.0
+						WHEN sae.event_type = 'reply' THEN 0.9
+						WHEN sae.event_type IN ('open', 'click') THEN 0.7
+						WHEN sae.event_type IN ('hide', 'report') THEN 0.0
+						ELSE NULL
+					END)
+					FROM search_event sae
+					WHERE sae.user_id = se.user_id
+						AND sae.query_hash = se.query_hash
+						AND sae.request_id = se.request_id
+						AND sae.floor_id = se.floor_id
+						AND sae.event_type IN ('open', 'click', 'reply', 'favorite', 'subscribe', 'hide', 'report')
+						AND se.request_id <> ''
+						AND sae.created_at >= se.created_at
+						AND sae.created_at < DATE_ADD(se.created_at, INTERVAL 2 HOUR)
+				),
+				(
+					SELECT MAX(CASE
+						WHEN fe.request_id = se.request_id AND se.request_id <> '' AND fe.event_type IN ('favorite', 'subscribe') THEN 1.0
+						WHEN fe.request_id = se.request_id AND se.request_id <> '' AND fe.event_type = 'reply' THEN 0.9
+						WHEN fe.request_id = se.request_id AND se.request_id <> '' AND fe.event_type IN ('open', 'click') THEN 0.7
+						WHEN fe.event_type IN ('favorite', 'subscribe') THEN 0.85
+						WHEN fe.event_type = 'reply' THEN 0.75
+						WHEN fe.event_type IN ('open', 'click') THEN 0.55
+						WHEN fe.event_type IN ('hide', 'report') THEN 0.0
+						ELSE NULL
+					END)
+					FROM feed_event fe
+					WHERE fe.user_id = se.user_id
+						AND fe.hole_id = se.hole_id
+						AND fe.event_type IN ('open', 'click', 'reply', 'favorite', 'subscribe', 'hide', 'report')
+						AND fe.created_at >= se.created_at
+						AND fe.created_at < DATE_ADD(se.created_at, INTERVAL 30 MINUTE)
+				),
+				0
+			) AS label,
 			se.user_id,
 			se.query_hash,
 			se.request_id,

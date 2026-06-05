@@ -71,6 +71,7 @@ Current implementation is a minimal, safe model-based loop:
 
 - real feedback tables are used for training;
 - search impressions are privacy-preserving once deployed;
+- search actions are attributed by `request_id` without storing raw query text;
 - online inference is deterministic and has config-gated fallback;
 - offline training now reports time-split metrics and baseline comparisons.
 
@@ -93,6 +94,12 @@ RECSYS_MODEL_RANKING=false
 SEARCH_MODEL_RANKING=false
 SEARCH_EVENT_LOGGING=true
 ```
+
+With `SEARCH_EVENT_LOGGING=true`, search result impressions write hashed query
+metadata and result rank context. If a later open/reply/favorite/subscribe event
+uses the same `request_id`, the service also writes a `search_event` action row
+that reuses the hashed query context. The trainer gives these request-matched
+actions priority over weaker time-window attribution.
 
 For shadow validation against the production database, start a non-public
 container with:

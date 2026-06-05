@@ -4,6 +4,13 @@ import "time"
 
 const (
 	SearchEventImpression = "impression"
+	SearchEventOpen       = "open"
+	SearchEventClick      = "click"
+	SearchEventReply      = "reply"
+	SearchEventFavorite   = "favorite"
+	SearchEventSubscribe  = "subscribe"
+	SearchEventHide       = "hide"
+	SearchEventReport     = "report"
 )
 
 type SearchEvent struct {

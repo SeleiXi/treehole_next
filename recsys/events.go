@@ -75,6 +75,7 @@ func LogEvent(c *fiber.Ctx, tx *gorm.DB, holeID int, eventType string, feedMode 
 	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&event).Error; err != nil {
 		log.Warn().Err(err).Int("hole_id", holeID).Str("event_type", eventType).Msg("could not write feed event")
 	}
+	models.LogSearchAction(tx, userID, holeID, eventType, requestID)
 }
 
 func logImpressions(tx *gorm.DB, c *fiber.Ctx, holes models.Holes, requestID string) {
