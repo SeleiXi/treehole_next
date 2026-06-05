@@ -19,13 +19,26 @@ type HoleFeedbackSuppression struct {
 	Soft    map[int]bool
 }
 
+func feedbackUserID(c *fiber.Ctx) int {
+	if c != nil {
+		if userID, err := GetCurrUserID(c); err == nil && userID != 0 {
+			return userID
+		}
+	}
+	user, err := GetCurrLoginUser(c)
+	if err != nil || user == nil {
+		return 0
+	}
+	return user.ID
+}
+
 func LoadHoleFeedbackSuppression(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Time) HoleFeedbackSuppression {
 	result := HoleFeedbackSuppression{
 		Hard: map[int]bool{},
 		Soft: map[int]bool{},
 	}
-	user, err := GetCurrLoginUser(c)
-	if err != nil || user == nil || user.ID == 0 {
+	userID := feedbackUserID(c)
+	if userID == 0 {
 		return result
 	}
 	if now.IsZero() {
@@ -35,7 +48,7 @@ func LoadHoleFeedbackSuppression(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now t
 		tx = DB
 	}
 
-	query := tx.Model(&FeedEvent{}).Where("user_id = ?", user.ID)
+	query := tx.Model(&FeedEvent{}).Where("user_id = ?", userID)
 	if len(holeIDs) != 0 {
 		query = query.Where("hole_id IN ?", holeIDs)
 	}
