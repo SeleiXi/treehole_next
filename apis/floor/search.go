@@ -12,7 +12,7 @@ import (
 // SearchQuery is the query struct for searching floors
 type SearchQuery struct {
 	Search string `json:"search" query:"search" validate:"required"`
-	Size   int    `json:"size" query:"size" validate:"min=0" default:"10"`
+	Size   int    `json:"size" query:"size" validate:"min=0,max=50" default:"10"`
 	Offset int    `json:"offset" query:"offset" validate:"min=0" default:"0"`
 
 	// Accurate is used to determine whether to use accurate search
