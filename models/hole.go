@@ -444,13 +444,13 @@ func recentSuppressedHoleIDs(tx *gorm.DB, c *fiber.Ctx, strategy string) []int {
 	if strategy != ranking.StrategyHot && strategy != ranking.StrategyRecommend {
 		return nil
 	}
-	userID, err := common.GetUserID(c)
-	if err != nil || userID == 0 {
+	user, err := GetCurrLoginUser(c)
+	if err != nil || user == nil || user.ID == 0 {
 		return nil
 	}
 	var ids []int
 	err = tx.Model(&FeedEvent{}).
-		Where("user_id = ?", userID).
+		Where("user_id = ?", user.ID).
 		Where("event_type IN ?", []string{FeedEventClick, FeedEventHide, FeedEventReport}).
 		Where("created_at >= ?", time.Now().Add(-30*24*time.Hour)).
 		Distinct().

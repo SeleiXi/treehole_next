@@ -10,12 +10,20 @@ import (
 	"treehole_next/models"
 )
 
+func currentUserID(c *fiber.Ctx) int {
+	user, err := models.GetCurrLoginUser(c)
+	if err != nil || user == nil {
+		return 0
+	}
+	return user.ID
+}
+
 func LogEvent(c *fiber.Ctx, tx *gorm.DB, holeID int, eventType string, feedMode string, position int, requestID string) {
 	if tx == nil {
 		tx = models.DB
 	}
-	userID, err := common.GetUserID(c)
-	if err != nil || userID == 0 || holeID == 0 || eventType == "" {
+	userID := currentUserID(c)
+	if userID == 0 || holeID == 0 || eventType == "" {
 		return
 	}
 	if feedMode == "" {
@@ -43,17 +51,10 @@ func LogImpressions(tx *gorm.DB, c *fiber.Ctx, holes models.Holes, feedMode stri
 	if len(holes) == 0 {
 		return
 	}
-<<<<<<< HEAD
-	userID, err := models.GetCurrUserID(c)
-=======
 	if feedMode == "" {
 		feedMode = ModeClassic
 	}
-	userID, err := common.GetUserID(c)
->>>>>>> 89954bb (feat(recsys): record feed interaction events)
-	if err != nil {
-		userID = 0
-	}
+	userID := currentUserID(c)
 	now := time.Now()
 	events := make([]models.FeedEvent, 0, len(holes))
 	for i, hole := range holes {
