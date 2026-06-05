@@ -94,6 +94,17 @@ SEARCH_MODEL_RANKING=false
 SEARCH_EVENT_LOGGING=true
 ```
 
+For shadow validation against the production database, start a non-public
+container with:
+
+```text
+DISABLE_BACKGROUND_TASKS=true
+```
+
+This still runs migrations and serves API requests, but avoids duplicate purge,
+feature-refresh, and message-cleanup jobs while validating the new
+`search_event` schema and request path.
+
 After at least several days of `search_event` collection, rerun:
 
 ```bash

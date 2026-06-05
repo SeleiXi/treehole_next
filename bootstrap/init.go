@@ -5,6 +5,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/opentreehole/go-common"
+	"github.com/rs/zerolog/log"
 
 	"treehole_next/apis"
 	"treehole_next/apis/hole"
@@ -50,6 +51,10 @@ func registerMiddlewares(app *fiber.App) {
 }
 
 func startTasks() context.CancelFunc {
+	if config.Config.DisableBackgroundTasks {
+		log.Info().Msg("background tasks disabled")
+		return func() {}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	go hole.UpdateHoleViews(ctx)
 	go hole.PurgeHole(ctx)

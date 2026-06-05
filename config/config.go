@@ -23,28 +23,29 @@ var Config struct {
 	DbURL string `env:"DB_URL"`
 	// example: MYSQL_REPLICA_URL="db1_dsn,db2_dsn", use ',' as separator
 	// should also set time_zone in url
-	MysqlReplicaURLs   []string `env:"MYSQL_REPLICA_URL"`
-	RedisURL           string   `env:"REDIS_URL"` // redis:6379
-	NotificationUrl    string   `env:"NOTIFICATION_URL"`
-	MessagePurgeDays   int      `envDefault:"7" env:"MESSAGE_PURGE_DAYS"`
-	AuthUrl            string   `env:"AUTH_URL"`
-	ElasticsearchUrl   string   `env:"ELASTICSEARCH_URL"`
-	OpenSearch         bool     `env:"OPEN_SEARCH" envDefault:"true"`
-	OpenFuzzName       bool     `env:"OPEN_FUZZ_NAME" envDefault:"false"`
-	UserAllShowHidden  bool     `env:"USER_ALL_HIDDEN" envDefault:"false"`
-	AdminOnly          bool     `env:"ADMIN_ONLY" envDefault:"false"`
-	HolePurgeDivisions []int    `env:"HOLE_PURGE_DIVISIONS" envDefault:"2"`
-	HolePurgeDays      int      `env:"HOLE_PURGE_DAYS" envDefault:"30"`
-	OpenSensitiveCheck bool     `env:"OPEN_SENSITIVE_CHECK" envDefault:"true"`
-	EnableTestLogin    bool     `env:"ENABLE_TEST_LOGIN" envDefault:"false"`
-	TestLoginUserID    int      `env:"TEST_LOGIN_USER_ID" envDefault:"1000001"`
-	TestAccessToken    string   `env:"TEST_ACCESS_TOKEN" envDefault:"treehole-test-access"`
-	TestRefreshToken   string   `env:"TEST_REFRESH_TOKEN" envDefault:"treehole-test-refresh"`
-	RecsysModelRanking bool     `env:"RECSYS_MODEL_RANKING" envDefault:"false"`
-	RecsysModelPath    string   `env:"RECSYS_MODEL_PATH" envDefault:""`
-	SearchModelRanking bool     `env:"SEARCH_MODEL_RANKING" envDefault:"false"`
-	SearchModelPath    string   `env:"SEARCH_MODEL_PATH" envDefault:""`
-	SearchEventLogging bool     `env:"SEARCH_EVENT_LOGGING" envDefault:"true"`
+	MysqlReplicaURLs       []string `env:"MYSQL_REPLICA_URL"`
+	RedisURL               string   `env:"REDIS_URL"` // redis:6379
+	NotificationUrl        string   `env:"NOTIFICATION_URL"`
+	MessagePurgeDays       int      `envDefault:"7" env:"MESSAGE_PURGE_DAYS"`
+	DisableBackgroundTasks bool     `env:"DISABLE_BACKGROUND_TASKS" envDefault:"false"`
+	AuthUrl                string   `env:"AUTH_URL"`
+	ElasticsearchUrl       string   `env:"ELASTICSEARCH_URL"`
+	OpenSearch             bool     `env:"OPEN_SEARCH" envDefault:"true"`
+	OpenFuzzName           bool     `env:"OPEN_FUZZ_NAME" envDefault:"false"`
+	UserAllShowHidden      bool     `env:"USER_ALL_HIDDEN" envDefault:"false"`
+	AdminOnly              bool     `env:"ADMIN_ONLY" envDefault:"false"`
+	HolePurgeDivisions     []int    `env:"HOLE_PURGE_DIVISIONS" envDefault:"2"`
+	HolePurgeDays          int      `env:"HOLE_PURGE_DAYS" envDefault:"30"`
+	OpenSensitiveCheck     bool     `env:"OPEN_SENSITIVE_CHECK" envDefault:"true"`
+	EnableTestLogin        bool     `env:"ENABLE_TEST_LOGIN" envDefault:"false"`
+	TestLoginUserID        int      `env:"TEST_LOGIN_USER_ID" envDefault:"1000001"`
+	TestAccessToken        string   `env:"TEST_ACCESS_TOKEN" envDefault:"treehole-test-access"`
+	TestRefreshToken       string   `env:"TEST_REFRESH_TOKEN" envDefault:"treehole-test-refresh"`
+	RecsysModelRanking     bool     `env:"RECSYS_MODEL_RANKING" envDefault:"false"`
+	RecsysModelPath        string   `env:"RECSYS_MODEL_PATH" envDefault:""`
+	SearchModelRanking     bool     `env:"SEARCH_MODEL_RANKING" envDefault:"false"`
+	SearchModelPath        string   `env:"SEARCH_MODEL_PATH" envDefault:""`
+	SearchEventLogging     bool     `env:"SEARCH_EVENT_LOGGING" envDefault:"true"`
 
 	YiDunBusinessIdText          string   `env:"YI_DUN_BUSINESS_ID_TEXT" envDefault:""`
 	YiDunBusinessIdImage         string   `env:"YI_DUN_BUSINESS_ID_IMAGE" envDefault:""`
@@ -95,6 +96,7 @@ func InitConfig() { // load config from environment variables
 		Bool("auth_configured", Config.AuthUrl != "").
 		Bool("elasticsearch_configured", Config.ElasticsearchUrl != "").
 		Bool("open_search", Config.OpenSearch).
+		Bool("disable_background_tasks", Config.DisableBackgroundTasks).
 		Bool("open_sensitive_check", Config.OpenSensitiveCheck).
 		Bool("enable_test_login", Config.EnableTestLogin).
 		Bool("recsys_model_ranking", Config.RecsysModelRanking).
