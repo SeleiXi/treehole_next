@@ -12,6 +12,8 @@ import (
 	"treehole_next/models"
 )
 
+const featureRefreshLookback = 30 * 24 * time.Hour
+
 type replyAggregate struct {
 	HoleID   int
 	Reply1h  int
@@ -27,7 +29,12 @@ type viewAggregate struct {
 
 func RefreshFeatures(tx *gorm.DB, now time.Time) error {
 	var holes []models.Hole
-	if err := tx.Model(&models.Hole{}).Find(&holes).Error; err != nil {
+	activeSince := now.Add(-featureRefreshLookback)
+	if err := tx.Model(&models.Hole{}).
+		Select("id, created_at, updated_at, reply, view, good, locked, frozen, favorite_count, subscription_count").
+		Where("hidden = ?", false).
+		Where("updated_at >= ? OR created_at >= ? OR favorite_count > 0 OR subscription_count > 0 OR good = ?", activeSince, activeSince, true).
+		Find(&holes).Error; err != nil {
 		return err
 	}
 
@@ -41,6 +48,7 @@ func RefreshFeatures(tx *gorm.DB, now time.Time) error {
 			SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS reply24h
 		`, now.Add(-time.Hour), now.Add(-6*time.Hour), now.Add(-24*time.Hour)).
 		Where("ranking > 0").
+		Where("created_at >= ?", now.Add(-24*time.Hour)).
 		Group("hole_id").
 		Find(&replies).Error; err != nil {
 		return err
@@ -57,7 +65,9 @@ func RefreshFeatures(tx *gorm.DB, now time.Time) error {
 			SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS view1h,
 			SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS view24h
 		`, now.Add(-time.Hour), now.Add(-24*time.Hour)).
-		Where("event_type IN ?", []string{models.FeedEventImpression, models.FeedEventClick}).
+		Where("event_type IN ?", []string{models.FeedEventImpression, models.FeedEventOpen, models.FeedEventClick}).
+		Where("created_at >= ?", now.Add(-24*time.Hour)).
+		Where("user_id > 0").
 		Group("hole_id").
 		Find(&views).Error; err != nil {
 		return err
@@ -97,7 +107,7 @@ func RefreshFeatures(tx *gorm.DB, now time.Time) error {
 			"favorite_count", "subscription_count",
 			"hot_score", "quality_score", "controversy_score", "updated_at",
 		}),
-	}).Create(&features).Error
+	}).CreateInBatches(&features, 500).Error
 }
 
 func UpdateFeatures(ctx context.Context) {

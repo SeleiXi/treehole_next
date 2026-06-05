@@ -36,12 +36,13 @@ func recallCandidates(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionID
 	}
 
 	set := newCandidateSet()
+	suppressedIDs := RecentSuppressedHoleIDs(tx, c, req.Now)
 	recalls := []func() ([]int, error){
-		func() ([]int, error) { return recallActive(tx, c, req, divisionIDs, poolSize/2) },
-		func() ([]int, error) { return recallFresh(tx, c, req, divisionIDs, poolSize/3) },
-		func() ([]int, error) { return recallHot(tx, c, req, divisionIDs, poolSize/3) },
-		func() ([]int, error) { return recallQuality(tx, c, req, divisionIDs, poolSize/3) },
-		func() ([]int, error) { return recallExplore(tx, c, req, divisionIDs, poolSize/6) },
+		func() ([]int, error) { return recallActive(tx, c, req, divisionIDs, suppressedIDs, poolSize/2) },
+		func() ([]int, error) { return recallFresh(tx, c, req, divisionIDs, suppressedIDs, poolSize/3) },
+		func() ([]int, error) { return recallHot(tx, c, req, divisionIDs, suppressedIDs, poolSize/3) },
+		func() ([]int, error) { return recallQuality(tx, c, req, divisionIDs, suppressedIDs, poolSize/3) },
+		func() ([]int, error) { return recallExplore(tx, c, req, divisionIDs, suppressedIDs, poolSize/6) },
 	}
 
 	for _, recall := range recalls {
@@ -54,13 +55,12 @@ func recallCandidates(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionID
 	return set.ids, nil
 }
 
-func baseCandidateQuery(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int) (*gorm.DB, error) {
+func baseCandidateQuery(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int, suppressedIDs []int) (*gorm.DB, error) {
 	query, err := models.MakeHoleQuerySet(c, tx)
 	if err != nil {
 		return nil, err
 	}
 	query = query.Where("hole.division_id IN ?", divisionIDs)
-	suppressedIDs := RecentSuppressedHoleIDs(tx, c, req.Now)
 	if len(suppressedIDs) != 0 {
 		query = query.Where("hole.id NOT IN ?", suppressedIDs)
 	}
@@ -84,8 +84,8 @@ func baseCandidateQuery(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, division
 	return query, nil
 }
 
-func recallActive(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int, limit int) ([]int, error) {
-	query, err := baseCandidateQuery(tx, c, req, divisionIDs)
+func recallActive(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int, suppressedIDs []int, limit int) ([]int, error) {
+	query, err := baseCandidateQuery(tx, c, req, divisionIDs, suppressedIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -94,8 +94,8 @@ func recallActive(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []
 	return ids, err
 }
 
-func recallFresh(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int, limit int) ([]int, error) {
-	query, err := baseCandidateQuery(tx, c, req, divisionIDs)
+func recallFresh(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int, suppressedIDs []int, limit int) ([]int, error) {
+	query, err := baseCandidateQuery(tx, c, req, divisionIDs, suppressedIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -104,8 +104,8 @@ func recallFresh(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []i
 	return ids, err
 }
 
-func recallQuality(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int, limit int) ([]int, error) {
-	query, err := baseCandidateQuery(tx, c, req, divisionIDs)
+func recallQuality(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int, suppressedIDs []int, limit int) ([]int, error) {
+	query, err := baseCandidateQuery(tx, c, req, divisionIDs, suppressedIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -120,8 +120,8 @@ func recallQuality(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs [
 	return ids, err
 }
 
-func recallHot(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int, limit int) ([]int, error) {
-	query, err := baseCandidateQuery(tx, c, req, divisionIDs)
+func recallHot(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int, suppressedIDs []int, limit int) ([]int, error) {
+	query, err := baseCandidateQuery(tx, c, req, divisionIDs, suppressedIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -134,8 +134,8 @@ func recallHot(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int
 	return ids, err
 }
 
-func recallExplore(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int, limit int) ([]int, error) {
-	query, err := baseCandidateQuery(tx, c, req, divisionIDs)
+func recallExplore(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int, suppressedIDs []int, limit int) ([]int, error) {
+	query, err := baseCandidateQuery(tx, c, req, divisionIDs, suppressedIDs)
 	if err != nil {
 		return nil, err
 	}
