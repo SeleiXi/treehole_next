@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 
 	"github.com/elastic/go-elasticsearch/v8/typedapi/types"
 	"github.com/elastic/go-elasticsearch/v8/typedapi/types/enums/refresh"
@@ -108,8 +109,15 @@ func (floors HighlightedFloors) Preprocess(_ *fiber.Ctx) error {
 // - HighlightedFloors: A list of floors matching the search criteria, each floor with an extra HighlightedContent field
 // - error: An error if the search fails
 func Search(c *fiber.Ctx, keyword string, size, offset int, accurate bool, startTime *int64, endTime *int64) (HighlightedFloors, error) {
+	return SearchWithRequest(c, keyword, size, offset, accurate, startTime, endTime, "")
+}
+
+func SearchWithRequest(c *fiber.Ctx, keyword string, size, offset int, accurate bool, startTime *int64, endTime *int64, requestID string) (HighlightedFloors, error) {
+	if requestID == "" {
+		requestID = uuid.NewString()
+	}
 	if ES == nil {
-		return SearchOld(c, keyword, size, offset, startTime, endTime)
+		return searchOldWithRequest(c, keyword, size, offset, startTime, endTime, requestID, accurate)
 	}
 	fetchSize := expandedSearchFetchSize(size)
 
@@ -234,6 +242,8 @@ func Search(c *fiber.Ctx, keyword string, size, offset int, accurate bool, start
 
 	floorIDs := make([]int, floorSize)
 	highlightedContents := make(map[int]string)
+	baseRanks := make(map[int]int, floorSize)
+	baseScores := make(map[int]*float64, floorSize)
 	for i, hit := range res.Hits.Hits {
 		id, err := strconv.Atoi(*hit.Id_)
 		if err != nil {
@@ -242,6 +252,9 @@ func Search(c *fiber.Ctx, keyword string, size, offset int, accurate bool, start
 			return nil, common.InternalServerError(errorMsg)
 		}
 		floorIDs[i] = id
+		baseRanks[id] = offset + i
+		score := float64(hit.Score_)
+		baseScores[id] = &score
 		if hit.Highlight != nil {
 			var fragments []string
 			if f, ok := hit.Highlight["content"]; ok && len(f) > 0 {
@@ -268,13 +281,15 @@ func Search(c *fiber.Ctx, keyword string, size, offset int, accurate bool, start
 	}
 
 	floors = utils.OrderInGivenOrder(floors, floorIDs)
+	now := time.Now()
 	// preprocess here to reuse Floors#Preprocess
 	err = floors.Preprocess(c)
 	if err != nil {
 		log.Err(err).Msg("error preprocessing floors")
 		return nil, err
 	}
-	floors = applySearchFeedbackFatigue(DB, c, floors, size, time.Now())
+	floors = applySearchFeedbackFatigue(DB, c, floors, size, now)
+	floors = applySearchModelRerank(c, keyword, floors, baseRanks, baseScores, now)
 
 	highlightedFloors := make(HighlightedFloors, len(floors))
 	for i, floor := range floors {
@@ -295,6 +310,7 @@ func Search(c *fiber.Ctx, keyword string, size, offset int, accurate bool, start
 			HighlightedContent: highlightedContent,
 		}
 	}
+	LogSearchImpressions(DB, c, keyword, accurate, "elastic", requestID, searchResultLogItems(floors, baseRanks, baseScores))
 
 	return highlightedFloors, nil
 }
@@ -302,6 +318,17 @@ func Search(c *fiber.Ctx, keyword string, size, offset int, accurate bool, start
 // SearchOld searches floors by keyword by Database.
 // It is used when ElasticSearch is not available. (Not recommended)
 func SearchOld(c *fiber.Ctx, keyword string, size, offset int, startTimeUnix *int64, endTimeUnix *int64) (HighlightedFloors, error) {
+	return SearchOldWithRequest(c, keyword, size, offset, startTimeUnix, endTimeUnix, "")
+}
+
+func SearchOldWithRequest(c *fiber.Ctx, keyword string, size, offset int, startTimeUnix *int64, endTimeUnix *int64, requestID string) (HighlightedFloors, error) {
+	return searchOldWithRequest(c, keyword, size, offset, startTimeUnix, endTimeUnix, requestID, false)
+}
+
+func searchOldWithRequest(c *fiber.Ctx, keyword string, size, offset int, startTimeUnix *int64, endTimeUnix *int64, requestID string, accurate bool) (HighlightedFloors, error) {
+	if requestID == "" {
+		requestID = uuid.NewString()
+	}
 	floors := Floors{}
 	fetchSize := expandedSearchFetchSize(size)
 	var startTime, endTime *time.Time
@@ -330,13 +357,45 @@ func SearchOld(c *fiber.Ctx, keyword string, size, offset int, startTimeUnix *in
 		return nil, err
 	}
 
-	floors = applySearchFeedbackFatigue(DB, c, floors, size, time.Now())
+	baseRanks := make(map[int]int, len(floors))
+	for i, floor := range floors {
+		if floor != nil {
+			baseRanks[floor.ID] = offset + i
+		}
+	}
+	floors = applySearchFeedbackFatigue(DB, c, floors, size, now)
+	floors = applySearchModelRerank(c, keyword, floors, baseRanks, nil, now)
 	result, err := PreprocessAndHighlight(c, floors, keyword)
 	if err != nil {
 		return nil, err
 	}
+	LogSearchImpressions(DB, c, keyword, accurate, "db", requestID, searchResultLogItems(floors, baseRanks, nil))
 
 	return result, nil
+}
+
+func searchResultLogItems(floors Floors, baseRanks map[int]int, baseScores map[int]*float64) []SearchResultLogItem {
+	items := make([]SearchResultLogItem, 0, len(floors))
+	for position, floor := range floors {
+		if floor == nil {
+			continue
+		}
+		baseRank, ok := baseRanks[floor.ID]
+		if !ok {
+			baseRank = position
+		}
+		var baseScore *float64
+		if baseScores != nil {
+			baseScore = baseScores[floor.ID]
+		}
+		items = append(items, SearchResultLogItem{
+			FloorID:   floor.ID,
+			HoleID:    floor.HoleID,
+			BaseRank:  baseRank,
+			BaseScore: baseScore,
+		})
+	}
+	return items
 }
 
 func expandedSearchFetchSize(size int) int {

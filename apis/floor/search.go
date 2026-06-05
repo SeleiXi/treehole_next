@@ -22,6 +22,8 @@ type SearchQuery struct {
 	// Both are Unix timestamps, and are optional
 	StartTime *int64 `json:"start_time" query:"start_time"`
 	EndTime   *int64 `json:"end_time" query:"end_time"`
+
+	RequestID string `json:"request_id" query:"request_id"`
 }
 
 // SearchFloors
@@ -40,7 +42,7 @@ func SearchFloors(c *fiber.Ctx) error {
 		return err
 	}
 
-	floors, err := Search(c, query.Search, query.Size, query.Offset, query.Accurate, query.StartTime, query.EndTime)
+	floors, err := SearchWithRequest(c, query.Search, query.Size, query.Offset, query.Accurate, query.StartTime, query.EndTime, query.RequestID)
 	if err != nil {
 		return err
 	}

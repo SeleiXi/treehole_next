@@ -26,10 +26,13 @@ func feedbackUserID(c *fiber.Ctx) int {
 		if userID, err := GetCurrUserID(c); err == nil && userID != 0 {
 			return userID
 		}
+		user, err := GetCurrLoginUser(c)
+		if err == nil && user != nil && user.ID != 0 {
+			return user.ID
+		}
 	}
-	user, err := GetCurrLoginUser(c)
-	if err == nil && user != nil && user.ID != 0 {
-		return user.ID
+	if config.Config.Mode == "dev" || config.Config.Mode == "test" {
+		return 1
 	}
 	if config.Config.EnableTestLogin && config.Config.TestLoginUserID != 0 {
 		return config.Config.TestLoginUserID

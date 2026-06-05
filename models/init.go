@@ -155,6 +155,7 @@ func InitDB() {
 		&UrlHostnameBlacklist{},
 		&HoleFeature{},
 		&FeedEvent{},
+		&SearchEvent{},
 	)
 	if err != nil {
 		log.Fatal().Err(err).Send()

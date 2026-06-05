@@ -40,6 +40,11 @@ var Config struct {
 	TestLoginUserID    int      `env:"TEST_LOGIN_USER_ID" envDefault:"1000001"`
 	TestAccessToken    string   `env:"TEST_ACCESS_TOKEN" envDefault:"treehole-test-access"`
 	TestRefreshToken   string   `env:"TEST_REFRESH_TOKEN" envDefault:"treehole-test-refresh"`
+	RecsysModelRanking bool     `env:"RECSYS_MODEL_RANKING" envDefault:"false"`
+	RecsysModelPath    string   `env:"RECSYS_MODEL_PATH" envDefault:""`
+	SearchModelRanking bool     `env:"SEARCH_MODEL_RANKING" envDefault:"false"`
+	SearchModelPath    string   `env:"SEARCH_MODEL_PATH" envDefault:""`
+	SearchEventLogging bool     `env:"SEARCH_EVENT_LOGGING" envDefault:"true"`
 
 	YiDunBusinessIdText          string   `env:"YI_DUN_BUSINESS_ID_TEXT" envDefault:""`
 	YiDunBusinessIdImage         string   `env:"YI_DUN_BUSINESS_ID_IMAGE" envDefault:""`
@@ -92,6 +97,9 @@ func InitConfig() { // load config from environment variables
 		Bool("open_search", Config.OpenSearch).
 		Bool("open_sensitive_check", Config.OpenSensitiveCheck).
 		Bool("enable_test_login", Config.EnableTestLogin).
+		Bool("recsys_model_ranking", Config.RecsysModelRanking).
+		Bool("search_model_ranking", Config.SearchModelRanking).
+		Bool("search_event_logging", Config.SearchEventLogging).
 		Int("test_login_user_id", Config.TestLoginUserID).
 		Bool("test_access_token_configured", Config.TestAccessToken != "").
 		Bool("test_refresh_token_configured", Config.TestRefreshToken != "").

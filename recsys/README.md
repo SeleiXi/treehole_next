@@ -23,9 +23,42 @@ The recommendation homepage path (`order=recommend` or `feed_mode=recommend`)
 uses a lightweight feed pipeline:
 
 ```text
-filter -> multi-recall -> rule ranking -> diversity reranking -> impression log
+filter -> multi-recall -> rule/model ranking -> diversity reranking -> impression log
 ```
 
-The current implementation is intentionally rule-based. It establishes the
-service boundary, event table, feature table, recall/rank/rerank modules, and
-fallback behavior before introducing heavier ML models.
+The production default remains rule ranking. A model-based layer can be enabled
+with `RECSYS_MODEL_RANKING=true` and `RECSYS_MODEL_PATH=/path/model.json`. If the
+model path is empty, missing, or invalid, ranking falls back to the existing rule
+score.
+
+Search has a matching minimal learning-to-rank loop:
+
+```text
+ES/DB lexical recall -> feedback fatigue -> optional model rerank -> sanitized response -> search impression log
+```
+
+`search_event` stores query hash, query length/token count, source, base rank,
+optional ES score, result floor/hole IDs, position, and request ID. It does not
+store the raw search query. Search model reranking is disabled by default and can
+be enabled with `SEARCH_MODEL_RANKING=true` and `SEARCH_MODEL_PATH=/path/model.json`.
+
+Train the first linear reranker directly from production-like MySQL data:
+
+```bash
+go run ./cmd/recsys-train -task=search -db "$DB_URL" -days=30 -out /data/search_model.json
+go run ./cmd/recsys-train -task=home -db "$DB_URL" -days=30 -out /data/home_model.json
+```
+
+The trainer builds pointwise logistic samples from real feedback:
+
+- `search`: `search_event` impressions are labeled positive when the same user
+  opens/clicks/replies/favorites/subscribes to the same hole shortly after the
+  search impression.
+- `home`: `feed_event` impressions/opens/replies/favorites/subscriptions become
+  user-hole training rows, joined with `hole`, `hole_feature`, tags, and division
+  metadata.
+
+The JSON model is intentionally simple: an intercept plus feature weights. This
+keeps online inference deterministic, cheap, and easy to roll back while leaving
+room to replace the offline trainer with GBDT, a two-tower retriever, or a
+cross-encoder reranker later.
