@@ -364,16 +364,14 @@ func applySearchFeedbackQuerySort(querySet *gorm.DB, c *fiber.Ctx, now time.Time
 	}
 
 	querySet = querySet.Where(
-		"NOT EXISTS (SELECT 1 FROM feed_event fe WHERE fe.user_id = ? AND fe.hole_id = floor.hole_id AND fe.event_type IN ? AND fe.created_at >= ?)",
+		"NOT EXISTS (SELECT 1 FROM feed_event fe WHERE fe.user_id = ? AND fe.hole_id = floor.hole_id AND fe.event_type IN ('hide', 'report') AND fe.created_at >= ?)",
 		userID,
-		[]string{FeedEventHide, FeedEventReport},
 		now.Add(-feedbackNegativeLookback),
 	)
 	return querySet.Order(clause.Expr{
-		SQL: "CASE WHEN EXISTS (SELECT 1 FROM feed_event fe WHERE fe.user_id = ? AND fe.hole_id = floor.hole_id AND fe.event_type IN ? AND fe.created_at >= ?) THEN 1 ELSE 0 END ASC",
+		SQL: "CASE WHEN EXISTS (SELECT 1 FROM feed_event fe WHERE fe.user_id = ? AND fe.hole_id = floor.hole_id AND fe.event_type IN ('open', 'click') AND fe.created_at >= ?) THEN 1 ELSE 0 END ASC",
 		Vars: []any{
 			userID,
-			[]string{FeedEventOpen, FeedEventClick},
 			now.Add(-feedbackOpenLookback),
 		},
 	})
