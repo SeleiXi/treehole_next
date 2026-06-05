@@ -31,6 +31,10 @@ func GetHomeFeed(c *fiber.Ctx, req HomeFeedRequest) (models.Holes, error) {
 				logImpressions(tx, c, holes, req.RequestID)
 				return nil
 			}
+			if req.CursorScore == nil {
+				holes = models.Holes{}
+				return nil
+			}
 		}
 
 		divisionIDs, err := models.HomepageDivisionIDs(tx, req.ExcludeDivisionIDs)
