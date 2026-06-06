@@ -26,6 +26,48 @@ func TestSplitSamplesByTimeUsesNewestForEval(t *testing.T) {
 	assert.Equal(t, "d", evalSamples[0].group)
 }
 
+func TestSplitSamplesByTimeRebalancesOneSidedEvalWhenPossible(t *testing.T) {
+	base := time.Now()
+	samples := []sample{
+		{label: 1, at: base, group: "old-positive"},
+		{label: 0, at: base.Add(time.Hour), group: "old-negative"},
+		{label: 0, at: base.Add(2 * time.Hour), group: "new-negative"},
+		{label: 1, at: base.Add(3 * time.Hour), group: "new-positive"},
+	}
+
+	split := splitSamplesByTimeDetailed(samples, 0.25)
+	trainSamples := split.train
+	evalSamples := split.eval
+
+	require.Len(t, trainSamples, 2)
+	require.Len(t, evalSamples, 2)
+	assert.Equal(t, splitStrategyLabelDiversity, split.strategy)
+	require.True(t, hasLabelDiversity(trainSamples))
+	require.True(t, hasLabelDiversity(evalSamples))
+	assert.Equal(t, "new-negative", evalSamples[0].group)
+	assert.Equal(t, "new-positive", evalSamples[1].group)
+}
+
+func TestSplitSamplesByTimeSkipsEvalWhenSinglePositiveCannotBeShared(t *testing.T) {
+	base := time.Now()
+	samples := []sample{
+		{label: 0, at: base, group: "a"},
+		{label: 0, at: base.Add(time.Hour), group: "b"},
+		{label: 0, at: base.Add(2 * time.Hour), group: "c"},
+		{label: 1, at: base.Add(3 * time.Hour), group: "d"},
+	}
+
+	split := splitSamplesByTimeDetailed(samples, 0.25)
+	trainSamples := split.train
+	evalSamples := split.eval
+
+	require.Len(t, trainSamples, 4)
+	require.Empty(t, evalSamples)
+	assert.Equal(t, splitStrategyTrainAll, split.strategy)
+	require.True(t, hasLabelDiversity(trainSamples))
+	require.NoError(t, validateSplitLabelDiversity(trainSamples, evalSamples, false))
+}
+
 func TestTrainStoresFeatureStats(t *testing.T) {
 	samples := []sample{
 		{label: 0, features: map[string]float64{"x": 0}},

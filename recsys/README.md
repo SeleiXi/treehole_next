@@ -63,9 +63,13 @@ The trainer builds pointwise logistic samples from real feedback:
 The JSON model is intentionally simple: an intercept plus feature weights. This
 keeps online inference deterministic, cheap, and easy to roll back while leaving
 room to replace the offline trainer with GBDT, a two-tower retriever, or a
-cross-encoder reranker later. The trainer uses an older-to-newer time split,
-stores feature normalization stats in `feature_stats`, and reports train/eval
-logloss, AUC, and NDCG@10 against the existing baseline ranker. Use
+cross-encoder reranker later. The trainer prefers an older-to-newer time split,
+falls back to a newest stratified split when a sparse time split would make
+train/eval labels one-sided, and skips eval when positive/negative labels are too
+scarce to share across both splits. It stores feature normalization stats in
+`feature_stats`, reports train/eval logloss, AUC, and NDCG@10 against the
+existing baseline ranker, and marks split fallbacks in metrics with
+`split_label_diversity_fallback` or `split_eval_skipped`. Use
 `-metrics-out /path/metrics.json` to persist the evaluation summary alongside the
 model artifact. By default, the trainer refuses to write a model when either the
 training split or non-empty evaluation split has only positive or only negative

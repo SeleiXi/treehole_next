@@ -93,7 +93,9 @@ func main() {
 		fatal(err)
 	}
 
-	trainSamples, evalSamples := splitSamplesByTime(samples, *evalRatio)
+	split := splitSamplesByTimeDetailed(samples, *evalRatio)
+	trainSamples := split.train
+	evalSamples := split.eval
 	if len(trainSamples) == 0 {
 		fatal(errors.New("no training samples after time split"))
 	}
@@ -112,6 +114,12 @@ func main() {
 		"sample_count": float64(len(samples)),
 		"train_count":  float64(len(trainSamples)),
 		"eval_count":   float64(len(evalSamples)),
+	}
+	if split.strategy != splitStrategyTime {
+		metrics["split_label_diversity_fallback"] = 1
+	}
+	if split.strategy == splitStrategyTrainAll {
+		metrics["split_eval_skipped"] = 1
 	}
 	mergeMetrics(metrics, "train", evaluate(trainSamples, model, *task))
 	if len(evalSamples) != 0 {
@@ -1164,7 +1172,24 @@ func normalizedFeature(sample sample, name string, stats modelrank.FeatureStats)
 	return (value - stats.Mean) / stats.Std
 }
 
+const (
+	splitStrategyTime           = "time"
+	splitStrategyLabelDiversity = "label_diversity"
+	splitStrategyTrainAll       = "train_all"
+)
+
+type sampleSplit struct {
+	train    []sample
+	eval     []sample
+	strategy string
+}
+
 func splitSamplesByTime(samples []sample, evalRatio float64) ([]sample, []sample) {
+	split := splitSamplesByTimeDetailed(samples, evalRatio)
+	return split.train, split.eval
+}
+
+func splitSamplesByTimeDetailed(samples []sample, evalRatio float64) sampleSplit {
 	ordered := append([]sample(nil), samples...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		if ordered[i].at.Equal(ordered[j].at) {
@@ -1173,7 +1198,7 @@ func splitSamplesByTime(samples []sample, evalRatio float64) ([]sample, []sample
 		return ordered[i].at.Before(ordered[j].at)
 	})
 	if evalRatio <= 0 || len(ordered) < 2 {
-		return ordered, nil
+		return sampleSplit{train: ordered, strategy: splitStrategyTime}
 	}
 	if evalRatio >= 1 {
 		evalRatio = 0.2
@@ -1186,7 +1211,92 @@ func splitSamplesByTime(samples []sample, evalRatio float64) ([]sample, []sample
 		evalCount = len(ordered) - 1
 	}
 	split := len(ordered) - evalCount
-	return ordered[:split], ordered[split:]
+	trainSamples := ordered[:split]
+	evalSamples := ordered[split:]
+	if hasLabelDiversity(trainSamples) && hasLabelDiversity(evalSamples) {
+		return sampleSplit{train: trainSamples, eval: evalSamples, strategy: splitStrategyTime}
+	}
+	return splitSamplesWithLabelDiversityFallback(ordered, evalRatio, trainSamples, evalSamples)
+}
+
+func splitSamplesWithLabelDiversityFallback(ordered []sample, evalRatio float64, trainSamples []sample, evalSamples []sample) sampleSplit {
+	if !hasLabelDiversity(ordered) {
+		return sampleSplit{train: trainSamples, eval: evalSamples, strategy: splitStrategyTime}
+	}
+	pos, neg := labelStats(ordered)
+	if pos < 2 || neg < 2 {
+		return sampleSplit{train: ordered, strategy: splitStrategyTrainAll}
+	}
+
+	evalCount := int(math.Round(float64(len(ordered)) * evalRatio))
+	if evalCount < 2 {
+		evalCount = 2
+	}
+	if evalCount > len(ordered)-2 {
+		evalCount = len(ordered) - 2
+	}
+	targetPos := int(math.Round(float64(pos) * float64(evalCount) / float64(len(ordered))))
+	targetPos = clampInt(targetPos, 1, pos-1)
+	targetNeg := evalCount - targetPos
+	if targetNeg < 1 {
+		targetNeg = 1
+		targetPos = evalCount - targetNeg
+	}
+	if targetNeg > neg-1 {
+		targetNeg = neg - 1
+		targetPos = evalCount - targetNeg
+	}
+	if targetPos < 1 || targetPos > pos-1 || targetNeg < 1 || targetNeg > neg-1 {
+		return sampleSplit{train: ordered, strategy: splitStrategyTrainAll}
+	}
+
+	evalIndexes := map[int]bool{}
+	for i := len(ordered) - 1; i >= 0; i-- {
+		if ordered[i].label > 0 {
+			if targetPos <= 0 {
+				continue
+			}
+			targetPos--
+		} else {
+			if targetNeg <= 0 {
+				continue
+			}
+			targetNeg--
+		}
+		evalIndexes[i] = true
+		if targetPos == 0 && targetNeg == 0 {
+			break
+		}
+	}
+	if targetPos != 0 || targetNeg != 0 {
+		return sampleSplit{train: ordered, strategy: splitStrategyTrainAll}
+	}
+
+	rebalancedTrain := make([]sample, 0, len(ordered)-len(evalIndexes))
+	rebalancedEval := make([]sample, 0, len(evalIndexes))
+	for i, sample := range ordered {
+		if evalIndexes[i] {
+			rebalancedEval = append(rebalancedEval, sample)
+		} else {
+			rebalancedTrain = append(rebalancedTrain, sample)
+		}
+	}
+	return sampleSplit{train: rebalancedTrain, eval: rebalancedEval, strategy: splitStrategyLabelDiversity}
+}
+
+func hasLabelDiversity(samples []sample) bool {
+	pos, neg := labelStats(samples)
+	return pos > 0 && neg > 0
+}
+
+func clampInt(value int, minValue int, maxValue int) int {
+	if value < minValue {
+		return minValue
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
 }
 
 func evaluate(samples []sample, model modelrank.LinearModel, task string) map[string]float64 {
