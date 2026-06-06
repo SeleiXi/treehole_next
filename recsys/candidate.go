@@ -5,6 +5,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type candidateSet struct {
@@ -105,6 +106,22 @@ func recallFresh(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []i
 }
 
 func recallQuality(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int, suppressedIDs []int, limit int) ([]int, error) {
+	ids, err := recallFeatureScore(tx, c, req, divisionIDs, suppressedIDs, "quality_score", limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) >= limit {
+		return ids, nil
+	}
+	suppressedIDs = withAdditionalSuppressed(suppressedIDs, ids)
+	fallback, err := recallQualityFallback(tx, c, req, divisionIDs, suppressedIDs, limit-len(ids))
+	if err != nil {
+		return nil, err
+	}
+	return append(ids, fallback...), nil
+}
+
+func recallQualityFallback(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int, suppressedIDs []int, limit int) ([]int, error) {
 	query, err := baseCandidateQuery(tx, c, req, divisionIDs, suppressedIDs)
 	if err != nil {
 		return nil, err
@@ -121,6 +138,22 @@ func recallQuality(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs [
 }
 
 func recallHot(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int, suppressedIDs []int, limit int) ([]int, error) {
+	ids, err := recallFeatureScore(tx, c, req, divisionIDs, suppressedIDs, "hot_score", limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) >= limit {
+		return ids, nil
+	}
+	suppressedIDs = withAdditionalSuppressed(suppressedIDs, ids)
+	fallback, err := recallHotFallback(tx, c, req, divisionIDs, suppressedIDs, limit-len(ids))
+	if err != nil {
+		return nil, err
+	}
+	return append(ids, fallback...), nil
+}
+
+func recallHotFallback(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int, suppressedIDs []int, limit int) ([]int, error) {
 	query, err := baseCandidateQuery(tx, c, req, divisionIDs, suppressedIDs)
 	if err != nil {
 		return nil, err
@@ -142,6 +175,90 @@ func recallExplore(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs [
 	var ids []int
 	err = query.Order("hole.id desc").Limit(limit).Pluck("hole.id", &ids).Error
 	return ids, err
+}
+
+func recallFeatureScore(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int, suppressedIDs []int, scoreColumn string, limit int) ([]int, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	switch scoreColumn {
+	case "hot_score", "quality_score":
+	default:
+		return nil, nil
+	}
+
+	query, err := featureCandidateQuery(tx, c, req, divisionIDs, suppressedIDs, scoreColumn)
+	if err != nil {
+		return nil, err
+	}
+	query = query.Where("hole_feature."+scoreColumn+" > ?", 0)
+	var ids []int
+	err = query.
+		Order(clause.OrderByColumn{Column: clause.Column{Table: "hole_feature", Name: scoreColumn}, Desc: true}).
+		Limit(limit).
+		Pluck("hole_feature.hole_id", &ids).Error
+	return ids, err
+}
+
+func featureCandidateQuery(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divisionIDs []int, suppressedIDs []int, scoreColumn string) (*gorm.DB, error) {
+	user, err := models.GetCurrLoginUser(c)
+	if err != nil {
+		return nil, err
+	}
+	table := "hole_feature"
+	join := "JOIN hole ON hole.id = hole_feature.hole_id"
+	if tx.Dialector.Name() == "mysql" {
+		table = "hole_feature FORCE INDEX (" + featureScoreIndex(scoreColumn) + ")"
+		join = "STRAIGHT_JOIN hole FORCE INDEX(PRIMARY) ON hole.id = hole_feature.hole_id"
+	}
+	query := tx.Table(table).
+		Joins(join).
+		Where("hole.division_id IN ?", divisionIDs)
+	if !user.IsAdmin {
+		query = query.Where("hole.deleted_at IS NULL").Where("hole.hidden = ?", false)
+	}
+	if len(suppressedIDs) != 0 {
+		query = query.Where("hole.id NOT IN ?", suppressedIDs)
+	}
+	if req.CreatedStart != nil {
+		query = query.Where("hole.created_at >= ?", req.CreatedStart.Time)
+	}
+	if req.CreatedEnd != nil {
+		query = query.Where("hole.created_at <= ?", req.CreatedEnd.Time)
+	}
+	if len(req.Tags) != 0 {
+		tagIDs, err := resolveTagIDs(tx, req.Tags)
+		if err != nil {
+			return nil, err
+		}
+		query = query.Where("hole.id IN (?)", tx.Table("hole_tags").
+			Select("hole_id").
+			Where("tag_id IN ?", tagIDs).
+			Group("hole_id").
+			Having("COUNT(DISTINCT tag_id) = ?", len(tagIDs)))
+	}
+	return query, nil
+}
+
+func featureScoreIndex(scoreColumn string) string {
+	switch scoreColumn {
+	case "hot_score":
+		return "idx_hole_feature_hot_score"
+	case "quality_score":
+		return "idx_hole_feature_quality_score"
+	default:
+		return "PRIMARY"
+	}
+}
+
+func withAdditionalSuppressed(suppressedIDs []int, ids []int) []int {
+	if len(ids) == 0 {
+		return suppressedIDs
+	}
+	result := make([]int, 0, len(suppressedIDs)+len(ids))
+	result = append(result, suppressedIDs...)
+	result = append(result, ids...)
+	return result
 }
 
 func resolveTagIDs(tx *gorm.DB, names []string) ([]int, error) {

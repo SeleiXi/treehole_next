@@ -205,6 +205,100 @@ func TestRecallCandidatesExcludesOnlyHardNegatives(t *testing.T) {
 	assert.NotContains(t, ids, 3)
 }
 
+func TestRecallHotUsesHoleFeatureScoreBeforeRuleFallback(t *testing.T) {
+	oldMode := config.Config.Mode
+	config.Config.Mode = "test"
+	t.Cleanup(func() {
+		config.Config.Mode = oldMode
+	})
+
+	db := newRankerTestDB(t)
+	now := time.Now()
+	assert.NoError(t, db.Create(&[]models.Hole{
+		{ID: 1, CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour), DivisionID: 1, UserID: 10, Reply: 20},
+		{ID: 2, CreatedAt: now.Add(-2 * time.Hour), UpdatedAt: now.Add(-2 * time.Hour), DivisionID: 1, UserID: 11, Reply: 1},
+	}).Error)
+	assert.NoError(t, db.Create(&[]models.HoleFeature{
+		{HoleID: 1, HotScore: 1, QualityScore: 1, UpdatedAt: now},
+		{HoleID: 2, HotScore: 10, QualityScore: 1, UpdatedAt: now},
+	}).Error)
+
+	ids, err := recallHot(db, nil, HomeFeedRequest{Size: 2, Now: now}, []int{1}, nil, 1)
+
+	assert.NoError(t, err)
+	assert.Equal(t, []int{2}, ids)
+}
+
+func TestRecallHotFallsBackWhenFeaturesAreMissing(t *testing.T) {
+	oldMode := config.Config.Mode
+	config.Config.Mode = "test"
+	t.Cleanup(func() {
+		config.Config.Mode = oldMode
+	})
+
+	db := newRankerTestDB(t)
+	now := time.Now()
+	assert.NoError(t, db.Create(&[]models.Hole{
+		{ID: 1, CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour), DivisionID: 1, UserID: 10, Reply: 20},
+		{ID: 2, CreatedAt: now.Add(-2 * time.Hour), UpdatedAt: now.Add(-2 * time.Hour), DivisionID: 1, UserID: 11, Reply: 1},
+	}).Error)
+
+	ids, err := recallHot(db, nil, HomeFeedRequest{Size: 2, Now: now}, []int{1}, nil, 1)
+
+	assert.NoError(t, err)
+	assert.Equal(t, []int{1}, ids)
+}
+
+func TestRecallQualityFillsFeatureShortfallWithRuleFallback(t *testing.T) {
+	oldMode := config.Config.Mode
+	config.Config.Mode = "test"
+	t.Cleanup(func() {
+		config.Config.Mode = oldMode
+	})
+
+	db := newRankerTestDB(t)
+	now := time.Now()
+	assert.NoError(t, db.Create(&[]models.Hole{
+		{ID: 1, CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour), DivisionID: 1, UserID: 10, FavoriteCount: 20},
+		{ID: 2, CreatedAt: now.Add(-2 * time.Hour), UpdatedAt: now.Add(-2 * time.Hour), DivisionID: 1, UserID: 11, FavoriteCount: 1},
+	}).Error)
+	assert.NoError(t, db.Create(&models.HoleFeature{
+		HoleID:       2,
+		QualityScore: 10,
+		UpdatedAt:    now,
+	}).Error)
+
+	ids, err := recallQuality(db, nil, HomeFeedRequest{Size: 2, Now: now}, []int{1}, nil, 2)
+
+	assert.NoError(t, err)
+	assert.Equal(t, []int{2, 1}, ids)
+}
+
+func TestRecallQualityIgnoresZeroFeatureScore(t *testing.T) {
+	oldMode := config.Config.Mode
+	config.Config.Mode = "test"
+	t.Cleanup(func() {
+		config.Config.Mode = oldMode
+	})
+
+	db := newRankerTestDB(t)
+	now := time.Now()
+	assert.NoError(t, db.Create(&[]models.Hole{
+		{ID: 1, CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour), DivisionID: 1, UserID: 10, FavoriteCount: 20},
+		{ID: 2, CreatedAt: now.Add(-2 * time.Hour), UpdatedAt: now.Add(-2 * time.Hour), DivisionID: 1, UserID: 11, FavoriteCount: 1},
+	}).Error)
+	assert.NoError(t, db.Create(&models.HoleFeature{
+		HoleID:       2,
+		QualityScore: 0,
+		UpdatedAt:    now,
+	}).Error)
+
+	ids, err := recallQuality(db, nil, HomeFeedRequest{Size: 2, Now: now}, []int{1}, nil, 1)
+
+	assert.NoError(t, err)
+	assert.Equal(t, []int{1}, ids)
+}
+
 func TestRankCandidatesFallsBackToSoftSuppressedHoles(t *testing.T) {
 	oldMode := config.Config.Mode
 	config.Config.Mode = "test"
