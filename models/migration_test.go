@@ -1,6 +1,7 @@
 package models
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -20,4 +21,10 @@ func TestMigrateRecsysTablesCreatesOperationalTables(t *testing.T) {
 	require.True(t, db.Migrator().HasTable(&HoleFeature{}))
 	require.True(t, db.Migrator().HasTable(&FeedEvent{}))
 	require.True(t, db.Migrator().HasTable(&SearchEvent{}))
+}
+
+func TestRecsysMySQLCreateStatementsUseStableCollation(t *testing.T) {
+	for _, statement := range recsysMySQLCreateStatements() {
+		require.Contains(t, strings.ToLower(statement), "default charset=utf8mb4 collate=utf8mb4_unicode_ci")
+	}
 }

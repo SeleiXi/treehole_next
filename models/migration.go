@@ -2,6 +2,8 @@ package models
 
 import "gorm.io/gorm"
 
+const recsysMySQLCollation = "utf8mb4_unicode_ci"
+
 func MigrateRecsysTables(db *gorm.DB) error {
 	if db.Dialector.Name() == "mysql" {
 		return migrateRecsysTablesMySQL(db)
@@ -10,6 +12,15 @@ func MigrateRecsysTables(db *gorm.DB) error {
 }
 
 func migrateRecsysTablesMySQL(db *gorm.DB) error {
+	for _, statement := range recsysMySQLCreateStatements() {
+		if err := db.Exec(statement).Error; err != nil {
+			return err
+		}
+	}
+	return normalizeRecsysTableCollationsMySQL(db)
+}
+
+func recsysMySQLCreateStatements() []string {
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS hole_feature (
 			hole_id bigint NOT NULL,
@@ -28,7 +39,7 @@ func migrateRecsysTablesMySQL(db *gorm.DB) error {
 			KEY idx_hole_feature_hot_score (hot_score),
 			KEY idx_hole_feature_quality_score (quality_score),
 			KEY idx_hole_feature_updated_at (updated_at)
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 		`CREATE TABLE IF NOT EXISTS feed_event (
 			id bigint unsigned NOT NULL AUTO_INCREMENT,
 			user_id bigint DEFAULT NULL,
@@ -48,7 +59,7 @@ func migrateRecsysTablesMySQL(db *gorm.DB) error {
 			KEY idx_feed_event_type_created_hole (event_type, created_at, hole_id),
 			KEY idx_feed_event_feed_mode (feed_mode),
 			KEY idx_feed_event_request_id (request_id)
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 		`CREATE TABLE IF NOT EXISTS search_event (
 			id bigint unsigned NOT NULL AUTO_INCREMENT,
 			user_id bigint DEFAULT NULL,
@@ -78,12 +89,35 @@ func migrateRecsysTablesMySQL(db *gorm.DB) error {
 			KEY idx_search_event_hole_id (hole_id),
 			KEY idx_search_event_event_type (event_type),
 			KEY idx_search_event_request_id (request_id)
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 	}
-	for _, statement := range statements {
-		if err := db.Exec(statement).Error; err != nil {
-			return err
-		}
+	return statements
+}
+
+func normalizeRecsysTableCollationsMySQL(db *gorm.DB) error {
+	return normalizeTableCollationMySQL(db, "search_event")
+}
+
+func normalizeTableCollationMySQL(db *gorm.DB, table string) error {
+	var mismatched int64
+	if err := db.Raw(`
+		SELECT COUNT(*)
+		FROM information_schema.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE()
+			AND TABLE_NAME = ?
+			AND COLLATION_NAME IS NOT NULL
+			AND COLLATION_NAME <> ?
+	`, table, recsysMySQLCollation).Scan(&mismatched).Error; err != nil {
+		return err
 	}
-	return nil
+	if mismatched == 0 {
+		return nil
+	}
+
+	switch table {
+	case "search_event":
+		return db.Exec(`ALTER TABLE search_event CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`).Error
+	default:
+		return nil
+	}
 }
