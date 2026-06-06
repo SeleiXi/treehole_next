@@ -84,6 +84,43 @@ func TestScoreCandidateIgnoresIncompatibleTaskModel(t *testing.T) {
 	assert.InDelta(t, ruleScore, score, 0.000001)
 }
 
+func TestScoreCandidateModelUsesBaseRuleScoreFeature(t *testing.T) {
+	oldEnabled := config.Config.RecsysModelRanking
+	oldPath := config.Config.RecsysModelPath
+	t.Cleanup(func() {
+		config.Config.RecsysModelRanking = oldEnabled
+		config.Config.RecsysModelPath = oldPath
+	})
+
+	path := filepath.Join(t.TempDir(), "home-model.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{
+		"version": "test-home",
+		"task": "home",
+		"weights": {
+			"rule_score": 1,
+			"feedback_impression_count": 0
+		}
+	}`), 0o644))
+	config.Config.RecsysModelRanking = true
+	config.Config.RecsysModelPath = path
+
+	now := time.Now()
+	hole := &models.Hole{ID: 1, CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour)}
+	feedback := userFeedback{
+		opened:      map[int]int{},
+		negative:    map[int]bool{},
+		impressions: map[int]int{1: 2},
+		divisions:   map[int]float64{},
+		tags:        map[int]float64{},
+	}
+	baseRuleScore := scoreHole(hole, nil, now)
+
+	score := scoreCandidate(hole, nil, feedback, nil, now)
+
+	assert.InDelta(t, baseRuleScore, score, 0.000001)
+	assert.Less(t, baseRuleScore-feedback.penalty(hole.ID), score)
+}
+
 func TestRankCandidatesUsesConfiguredModel(t *testing.T) {
 	oldEnabled := config.Config.RecsysModelRanking
 	oldPath := config.Config.RecsysModelPath

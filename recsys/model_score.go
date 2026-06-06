@@ -10,15 +10,16 @@ import (
 )
 
 func scoreCandidate(hole *models.Hole, feature *models.HoleFeature, feedback userFeedback, tagIDs []int, now time.Time) float64 {
-	ruleScore := scoreHole(hole, feature, now) + feedback.affinityScore(hole, tagIDs) - feedback.penalty(hole.ID)
+	baseRuleScore := scoreHole(hole, feature, now)
+	fallbackScore := baseRuleScore + feedback.affinityScore(hole, tagIDs) - feedback.penalty(hole.ID)
 	if !config.Config.RecsysModelRanking {
-		return ruleScore
+		return fallbackScore
 	}
 	model := loadRecsysRankModel()
 	if model == nil {
-		return ruleScore
+		return fallbackScore
 	}
-	return scoreCandidateWithModel(hole, feature, feedback, tagIDs, now, ruleScore, model)
+	return scoreCandidateWithModel(hole, feature, feedback, tagIDs, now, baseRuleScore, model)
 }
 
 func scoreCandidateWithModel(hole *models.Hole, feature *models.HoleFeature, feedback userFeedback, tagIDs []int, now time.Time, ruleScore float64, model *modelrank.LinearModel) float64 {

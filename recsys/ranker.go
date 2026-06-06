@@ -42,8 +42,11 @@ func rankCandidatesForSize(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Ti
 			continue
 		}
 		tagIDs := holeTags[hole.ID]
-		ruleScore := scoreHole(hole, features[hole.ID], now) + feedback.affinityScore(hole, tagIDs) - feedback.penalty(hole.ID)
-		score := scoreCandidateWithModel(hole, features[hole.ID], feedback, tagIDs, now, ruleScore, model)
+		baseRuleScore := scoreHole(hole, features[hole.ID], now)
+		score := baseRuleScore + feedback.affinityScore(hole, tagIDs) - feedback.penalty(hole.ID)
+		if model != nil {
+			score = scoreCandidateWithModel(hole, features[hole.ID], feedback, tagIDs, now, baseRuleScore, model)
+		}
 		hole.SortScore = &score
 		item := scoredHole{hole: hole, score: score, tagIDs: tagIDs}
 		if feedback.shouldSuppress(hole.ID) {
