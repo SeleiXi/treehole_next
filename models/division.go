@@ -1,6 +1,8 @@
 package models
 
 import (
+	"slices"
+	"sync"
 	"time"
 
 	"treehole_next/utils"
@@ -34,14 +36,68 @@ type Division struct {
 	ShowInHomePage bool `json:"show_in_home_page" gorm:"not null;default:true"`
 }
 
+const homepageDivisionIDsCacheTTL = 5 * time.Minute
+
+var homepageDivisionIDsCache = struct {
+	sync.Mutex
+	ids       []int
+	expiresAt time.Time
+}{}
+
 func HomepageDivisionIDs(tx *gorm.DB, excludeDivisionIDs *[]int) (divisionIDs []int, err error) {
-	if excludeDivisionIDs != nil {
-		err = tx.Model(&Division{}).Select("id").Where("show_in_home_page = ? AND id NOT IN ?", true, excludeDivisionIDs).Find(&divisionIDs).Error
-		return
+	divisionIDs, err = cachedHomepageDivisionIDs(tx)
+	if err != nil || excludeDivisionIDs == nil || len(*excludeDivisionIDs) == 0 {
+		return divisionIDs, err
 	}
 
-	err = tx.Model(&Division{}).Select("id").Where("show_in_home_page = ?", true).Find(&divisionIDs).Error
-	return
+	excluded := make(map[int]bool, len(*excludeDivisionIDs))
+	for _, id := range *excludeDivisionIDs {
+		excluded[id] = true
+	}
+	filtered := make([]int, 0, len(divisionIDs))
+	for _, id := range divisionIDs {
+		if !excluded[id] {
+			filtered = append(filtered, id)
+		}
+	}
+	return filtered, nil
+}
+
+func cachedHomepageDivisionIDs(tx *gorm.DB) ([]int, error) {
+	now := time.Now()
+	homepageDivisionIDsCache.Lock()
+	if !homepageDivisionIDsCache.expiresAt.IsZero() && now.Before(homepageDivisionIDsCache.expiresAt) {
+		ids := slices.Clone(homepageDivisionIDsCache.ids)
+		homepageDivisionIDsCache.Unlock()
+		return ids, nil
+	}
+	homepageDivisionIDsCache.Unlock()
+
+	if tx == nil {
+		tx = DB
+	}
+	var ids []int
+	err := tx.Model(&Division{}).
+		Select("id").
+		Where("show_in_home_page = ?", true).
+		Order("id").
+		Find(&ids).Error
+	if err != nil {
+		return nil, err
+	}
+
+	homepageDivisionIDsCache.Lock()
+	homepageDivisionIDsCache.ids = slices.Clone(ids)
+	homepageDivisionIDsCache.expiresAt = now.Add(homepageDivisionIDsCacheTTL)
+	homepageDivisionIDsCache.Unlock()
+	return slices.Clone(ids), nil
+}
+
+func ResetHomepageDivisionIDsCache() {
+	homepageDivisionIDsCache.Lock()
+	defer homepageDivisionIDsCache.Unlock()
+	homepageDivisionIDsCache.ids = nil
+	homepageDivisionIDsCache.expiresAt = time.Time{}
 }
 
 func (division *Division) GetID() int {
@@ -84,5 +140,16 @@ func (division *Division) AfterFind(_ *gorm.DB) (err error) {
 
 func (division *Division) AfterCreate(_ *gorm.DB) (err error) {
 	division.DivisionID = division.ID
+	ResetHomepageDivisionIDsCache()
+	return nil
+}
+
+func (division *Division) AfterUpdate(_ *gorm.DB) (err error) {
+	ResetHomepageDivisionIDsCache()
+	return nil
+}
+
+func (division *Division) AfterDelete(_ *gorm.DB) (err error) {
+	ResetHomepageDivisionIDsCache()
 	return nil
 }

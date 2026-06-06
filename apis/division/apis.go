@@ -50,6 +50,10 @@ func AddDivision(c *fiber.Ctx) error {
 		Description: body.Description,
 	}
 	result := DB.FirstOrCreate(&division, Division{Name: body.Name})
+	if result.Error != nil {
+		return result.Error
+	}
+	ResetHomepageDivisionIDsCache()
 	if result.RowsAffected == 0 {
 		c.Status(200)
 	} else {
@@ -163,6 +167,7 @@ func ModifyDivision(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	ResetHomepageDivisionIDsCache()
 
 	var newDivision Division
 	err = DB.First(&newDivision, id).Error
@@ -230,6 +235,7 @@ func DeleteDivision(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	ResetHomepageDivisionIDsCache()
 
 	// log
 	//if err != nil {
