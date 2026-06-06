@@ -115,6 +115,24 @@ func TestHomeFeaturesUseOnlySampleTimeFeatureSnapshot(t *testing.T) {
 	assert.Equal(t, math.Log1p(float64(reply24h)), features["reply_24h_log"])
 }
 
+func TestHomeFeaturesExposeFeedbackPenaltyAndFallbackScore(t *testing.T) {
+	sampleAt := time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
+
+	features := homeFeatures(homeRow{
+		SampleAt:        sampleAt,
+		Reply:           3,
+		View:            5,
+		OpenCount:       2,
+		ImpressionCount: 3,
+		HoleCreatedAt:   sampleAt.Add(-time.Hour),
+		HoleUpdatedAt:   sampleAt.Add(-time.Hour),
+	})
+
+	penalty := 2*2.25 + 3*1.75
+	assert.Equal(t, penalty, features["feedback_penalty"])
+	assert.Equal(t, features["rule_score"]-penalty, features["fallback_score"])
+}
+
 func TestHomeGroupUsesRequestOrMinuteBucket(t *testing.T) {
 	sampleAt := time.Date(2026, 6, 6, 10, 3, 40, 0, time.UTC)
 

@@ -527,9 +527,12 @@ func homeFeatures(row homeRow) map[string]float64 {
 	if row.Locked || row.Frozen {
 		ruleScore -= 1.0
 	}
+	feedbackPenalty := float64(row.OpenCount)*2.25 + float64(row.ImpressionCount)*1.75
+	fallbackScore := ruleScore - feedbackPenalty
 
 	features := map[string]float64{
 		"rule_score":                ruleScore,
+		"fallback_score":            fallbackScore,
 		"reply_log":                 math.Log1p(float64(row.Reply)),
 		"view_log":                  math.Log1p(float64(row.View)),
 		"reply_24h_log":             math.Log1p(reply24h),
@@ -541,6 +544,7 @@ func homeFeatures(row homeRow) map[string]float64 {
 		"freshness_24h":             24.0 / (24.0 + updateHours),
 		"feedback_open_count":       float64(row.OpenCount),
 		"feedback_impression_count": float64(row.ImpressionCount),
+		"feedback_penalty":          feedbackPenalty,
 		"division_affinity":         0,
 		"tag_affinity":              0,
 		"tag_count":                 float64(row.TagCount),

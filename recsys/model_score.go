@@ -45,9 +45,12 @@ func candidateFeatures(hole *models.Hole, feature *models.HoleFeature, feedback 
 	for _, tagID := range tagIDs {
 		tagAffinity += feedback.tags[tagID]
 	}
+	feedbackPenalty := feedback.penalty(hole.ID)
+	fallbackScore := ruleScore + feedback.affinityScore(hole, tagIDs) - feedbackPenalty
 
 	features := map[string]float64{
 		"rule_score":                ruleScore,
+		"fallback_score":            fallbackScore,
 		"reply_log":                 math.Log1p(float64(hole.Reply)),
 		"view_log":                  math.Log1p(float64(hole.View)),
 		"reply_24h_log":             math.Log1p(reply24h),
@@ -59,6 +62,7 @@ func candidateFeatures(hole *models.Hole, feature *models.HoleFeature, feedback 
 		"freshness_24h":             24.0 / (24.0 + updateHours),
 		"feedback_open_count":       float64(feedback.opened[hole.ID]),
 		"feedback_impression_count": float64(feedback.impressions[hole.ID]),
+		"feedback_penalty":          feedbackPenalty,
 		"division_affinity":         divisionAffinity,
 		"tag_affinity":              tagAffinity,
 		"tag_count":                 float64(len(tagIDs)),

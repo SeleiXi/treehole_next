@@ -179,6 +179,32 @@ func TestCandidateFeaturesIgnoreFutureFeatureSnapshot(t *testing.T) {
 	assert.Equal(t, math.Log1p(float64(feature.Reply24h)), features["reply_24h_log"])
 }
 
+func TestCandidateFeaturesExposeFallbackPenaltyFeature(t *testing.T) {
+	now := time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
+	hole := &models.Hole{
+		ID:         1,
+		Reply:      3,
+		View:       7,
+		DivisionID: 1,
+		CreatedAt:  now.Add(-2 * time.Hour),
+		UpdatedAt:  now.Add(-time.Hour),
+	}
+	feedback := userFeedback{
+		opened:      map[int]int{1: 2},
+		negative:    map[int]bool{},
+		impressions: map[int]int{1: 3},
+		divisions:   map[int]float64{1: 3},
+		tags:        map[int]float64{10: 10},
+	}
+	ruleScore := scoreHole(hole, nil, now)
+
+	features := candidateFeatures(hole, nil, feedback, []int{10}, now, ruleScore)
+
+	penalty := 2*2.25 + 3*1.75
+	assert.Equal(t, penalty, features["feedback_penalty"])
+	assert.Equal(t, ruleScore+8-penalty, features["fallback_score"])
+}
+
 func TestRankCandidatesUsesConfiguredModel(t *testing.T) {
 	oldEnabled := config.Config.RecsysModelRanking
 	oldPath := config.Config.RecsysModelPath
