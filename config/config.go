@@ -28,6 +28,7 @@ var Config struct {
 	NotificationUrl        string   `env:"NOTIFICATION_URL"`
 	MessagePurgeDays       int      `envDefault:"7" env:"MESSAGE_PURGE_DAYS"`
 	DisableBackgroundTasks bool     `env:"DISABLE_BACKGROUND_TASKS" envDefault:"false"`
+	AutoMigrate            bool     `env:"AUTO_MIGRATE" envDefault:"false"`
 	DisableAutoMigrate     bool     `env:"DISABLE_AUTO_MIGRATE" envDefault:"false"`
 	AuthUrl                string   `env:"AUTH_URL"`
 	ElasticsearchUrl       string   `env:"ELASTICSEARCH_URL"`
@@ -98,6 +99,7 @@ func InitConfig() { // load config from environment variables
 		Bool("elasticsearch_configured", Config.ElasticsearchUrl != "").
 		Bool("open_search", Config.OpenSearch).
 		Bool("disable_background_tasks", Config.DisableBackgroundTasks).
+		Bool("auto_migrate", Config.AutoMigrate).
 		Bool("disable_auto_migrate", Config.DisableAutoMigrate).
 		Bool("open_sensitive_check", Config.OpenSensitiveCheck).
 		Bool("enable_test_login", Config.EnableTestLogin).

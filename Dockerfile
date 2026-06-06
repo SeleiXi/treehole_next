@@ -11,13 +11,15 @@ RUN apk add --no-cache \
 COPY . .
 
 RUN mkdir -p /root/.cache/go-buildtmp && \
-    GOTMPDIR=/root/.cache/go-buildtmp CGO_ENABLED=0 go build -buildvcs=false -tags production -ldflags "-s -w" -o treehole
+    GOTMPDIR=/root/.cache/go-buildtmp CGO_ENABLED=0 go build -buildvcs=false -tags production -ldflags "-s -w" -o treehole && \
+    GOTMPDIR=/root/.cache/go-buildtmp CGO_ENABLED=0 go build -buildvcs=false -tags production -ldflags "-s -w" -o treehole-migrate ./cmd/db-migrate
 
 FROM alpine
 
 WORKDIR /app
 
 COPY --from=builder /app/treehole /app/
+COPY --from=builder /app/treehole-migrate /app/
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 COPY data data
 

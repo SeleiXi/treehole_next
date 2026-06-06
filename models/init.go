@@ -104,30 +104,10 @@ func InitDB() {
 		log.Fatal().Err(err).Send()
 	}
 
-	if config.Config.DisableAutoMigrate {
-		log.Info().Msg("auto migrate disabled")
+	if !shouldAutoMigrate() {
+		log.Info().Msg("auto migrate skipped")
 	} else {
-		// models must be registered here to migrate into the database
-		err = DB.AutoMigrate(
-			&Division{},
-			&Tag{},
-			&User{},
-			&Floor{},
-			&Hole{},
-			&Report{},
-			&Punishment{},
-			&ReportPunishment{},
-			&Message{},
-			&FloorHistory{},
-			&AdminLog{},
-			&UserFavorite{},
-			&FavoriteGroup{},
-			&UrlHostnameBlacklist{},
-			&HoleFeature{},
-			&FeedEvent{},
-			&SearchEvent{},
-		)
-		if err != nil {
+		if err = AutoMigrateDB(DB); err != nil {
 			log.Fatal().Err(err).Send()
 		}
 	}
@@ -136,6 +116,39 @@ func InitDB() {
 	if err != nil {
 		log.Fatal().Err(err).Send()
 	}
+}
+
+func shouldAutoMigrate() bool {
+	if config.Config.DisableAutoMigrate {
+		return false
+	}
+	if config.Config.Mode == "production" {
+		return config.Config.AutoMigrate
+	}
+	return true
+}
+
+func AutoMigrateDB(db *gorm.DB) error {
+	// models must be registered here to migrate into the database
+	return db.AutoMigrate(
+		&Division{},
+		&Tag{},
+		&User{},
+		&Floor{},
+		&Hole{},
+		&Report{},
+		&Punishment{},
+		&ReportPunishment{},
+		&Message{},
+		&FloorHistory{},
+		&AdminLog{},
+		&UserFavorite{},
+		&FavoriteGroup{},
+		&UrlHostnameBlacklist{},
+		&HoleFeature{},
+		&FeedEvent{},
+		&SearchEvent{},
+	)
 }
 
 func withMySQLTimeoutDefaults(dsn string) string {
