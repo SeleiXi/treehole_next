@@ -229,6 +229,31 @@ func TestRecallHotUsesHoleFeatureScoreBeforeRuleFallback(t *testing.T) {
 	assert.Equal(t, []int{2}, ids)
 }
 
+func TestRecallHotUsesOnlyFreshFeatureScores(t *testing.T) {
+	oldMode := config.Config.Mode
+	config.Config.Mode = "test"
+	t.Cleanup(func() {
+		config.Config.Mode = oldMode
+	})
+
+	db := newRankerTestDB(t)
+	now := time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
+	assert.NoError(t, db.Create(&[]models.Hole{
+		{ID: 1, CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour), DivisionID: 1, UserID: 10, Reply: 20},
+		{ID: 2, CreatedAt: now.Add(-2 * time.Hour), UpdatedAt: now.Add(-2 * time.Hour), DivisionID: 1, UserID: 11, Reply: 1},
+		{ID: 3, CreatedAt: now.Add(-3 * time.Hour), UpdatedAt: now.Add(-3 * time.Hour), DivisionID: 1, UserID: 12, Reply: 1},
+	}).Error)
+	assert.NoError(t, db.Create(&[]models.HoleFeature{
+		{HoleID: 2, HotScore: 100, QualityScore: 100, UpdatedAt: now.Add(time.Minute)},
+		{HoleID: 3, HotScore: 90, QualityScore: 90, UpdatedAt: now.Add(-featureMaxAge - time.Minute)},
+	}).Error)
+
+	ids, err := recallHot(db, nil, HomeFeedRequest{Size: 3, Now: now}, []int{1}, nil, 1)
+
+	assert.NoError(t, err)
+	assert.Equal(t, []int{1}, ids)
+}
+
 func TestRecallHotFallsBackWhenFeaturesAreMissing(t *testing.T) {
 	oldMode := config.Config.Mode
 	config.Config.Mode = "test"

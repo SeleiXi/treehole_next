@@ -1,6 +1,8 @@
 package recsys
 
 import (
+	"time"
+
 	"treehole_next/models"
 
 	"github.com/gofiber/fiber/v2"
@@ -205,6 +207,10 @@ func featureCandidateQuery(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divis
 	if err != nil {
 		return nil, err
 	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
 	table := "hole_feature"
 	join := "JOIN hole ON hole.id = hole_feature.hole_id"
 	if tx.Dialector.Name() == "mysql" {
@@ -213,7 +219,9 @@ func featureCandidateQuery(tx *gorm.DB, c *fiber.Ctx, req HomeFeedRequest, divis
 	}
 	query := tx.Table(table).
 		Joins(join).
-		Where("hole.division_id IN ?", divisionIDs)
+		Where("hole.division_id IN ?", divisionIDs).
+		Where("hole_feature.updated_at <= ?", now).
+		Where("hole_feature.updated_at >= ?", now.Add(-featureMaxAge))
 	if !user.IsAdmin {
 		query = query.Where("hole.deleted_at IS NULL").Where("hole.hidden = ?", false)
 	}
