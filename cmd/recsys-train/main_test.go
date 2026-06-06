@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,6 +56,21 @@ func TestEvaluateReportsModelAndBaselineMetrics(t *testing.T) {
 	assert.Contains(t, metrics, "baseline_auc")
 	assert.Contains(t, metrics, "model_ndcg_10")
 	assert.Contains(t, metrics, "baseline_ndcg_10")
+}
+
+func TestTrainingQueriesGateLooseFallbackToLegacyEmptyRequestID(t *testing.T) {
+	searchSQL := searchSamplesSQL()
+	assert.Contains(t, searchSQL, "fe.request_id = se.request_id")
+	assert.Contains(t, searchSQL, "AND se.request_id <> ''")
+	assert.Contains(t, searchSQL, "AND se.request_id = ''")
+
+	homeSQL := homeSamplesSQL()
+	assert.Contains(t, homeSQL, "fa.request_id = fe.request_id")
+	assert.Contains(t, homeSQL, "AND fe.request_id <> ''")
+	assert.Contains(t, homeSQL, "AND fe.request_id = ''")
+
+	assert.GreaterOrEqual(t, strings.Count(searchSQL, "request_id = ''"), 1)
+	assert.GreaterOrEqual(t, strings.Count(homeSQL, "request_id = ''"), 1)
 }
 
 func TestSearchFeaturesIgnoreFutureFeatureSnapshot(t *testing.T) {

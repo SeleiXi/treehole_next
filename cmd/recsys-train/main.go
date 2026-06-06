@@ -186,7 +186,24 @@ type searchRow struct {
 
 func loadSearchSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 	var rows []searchRow
-	err := db.Raw(`
+	err := db.Raw(searchSamplesSQL(), days, limit).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	samples := make([]sample, 0, len(rows))
+	for _, row := range rows {
+		samples = append(samples, sample{
+			label:    row.Label,
+			features: searchFeatures(row),
+			at:       row.SampleAt,
+			group:    searchGroup(row),
+		})
+	}
+	return samples, nil
+}
+
+func searchSamplesSQL() string {
+	return `
 		SELECT
 			COALESCE(
 				(
@@ -209,9 +226,23 @@ func loadSearchSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 				),
 				(
 					SELECT MAX(CASE
-						WHEN fe.request_id = se.request_id AND se.request_id <> '' AND fe.event_type IN ('favorite', 'subscribe') THEN 1.0
-						WHEN fe.request_id = se.request_id AND se.request_id <> '' AND fe.event_type = 'reply' THEN 0.9
-						WHEN fe.request_id = se.request_id AND se.request_id <> '' AND fe.event_type IN ('open', 'click') THEN 0.7
+						WHEN fe.event_type IN ('favorite', 'subscribe') THEN 1.0
+						WHEN fe.event_type = 'reply' THEN 0.9
+						WHEN fe.event_type IN ('open', 'click') THEN 0.7
+						WHEN fe.event_type IN ('hide', 'report') THEN 0.0
+						ELSE NULL
+					END)
+					FROM feed_event fe
+					WHERE fe.user_id = se.user_id
+						AND fe.hole_id = se.hole_id
+						AND fe.request_id = se.request_id
+						AND se.request_id <> ''
+						AND fe.event_type IN ('open', 'click', 'reply', 'favorite', 'subscribe', 'hide', 'report')
+						AND fe.created_at >= se.created_at
+						AND fe.created_at < DATE_ADD(se.created_at, INTERVAL 30 MINUTE)
+				),
+				(
+					SELECT MAX(CASE
 						WHEN fe.event_type IN ('favorite', 'subscribe') THEN 0.85
 						WHEN fe.event_type = 'reply' THEN 0.75
 						WHEN fe.event_type IN ('open', 'click') THEN 0.55
@@ -222,6 +253,7 @@ func loadSearchSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 					WHERE fe.user_id = se.user_id
 						AND fe.hole_id = se.hole_id
 						AND fe.event_type IN ('open', 'click', 'reply', 'favorite', 'subscribe', 'hide', 'report')
+						AND se.request_id = ''
 						AND fe.created_at >= se.created_at
 						AND fe.created_at < DATE_ADD(se.created_at, INTERVAL 30 MINUTE)
 				),
@@ -238,7 +270,7 @@ func loadSearchSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 			se.accurate,
 			se.source,
 			f.created_at AS floor_created_at,
-			f.`+"`like`"+` AS floor_like,
+			f.` + "`like`" + ` AS floor_like,
 			f.dislike AS floor_dislike,
 			f.ranking AS floor_ranking,
 			CHAR_LENGTH(f.content) AS content_length,
@@ -271,20 +303,7 @@ func loadSearchSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 			AND se.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
 		ORDER BY se.created_at DESC
 		LIMIT ?
-	`, days, limit).Scan(&rows).Error
-	if err != nil {
-		return nil, err
-	}
-	samples := make([]sample, 0, len(rows))
-	for _, row := range rows {
-		samples = append(samples, sample{
-			label:    row.Label,
-			features: searchFeatures(row),
-			at:       row.SampleAt,
-			group:    searchGroup(row),
-		})
-	}
-	return samples, nil
+	`
 }
 
 func searchGroup(row searchRow) string {
@@ -398,13 +417,45 @@ type homeRow struct {
 
 func loadHomeSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 	var rows []homeRow
-	err := db.Raw(`
+	err := db.Raw(homeSamplesSQL(), days, limit).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	samples := make([]sample, 0, len(rows))
+	for _, row := range rows {
+		samples = append(samples, sample{
+			label:    row.Label,
+			features: homeFeatures(row),
+			at:       row.SampleAt,
+			group:    homeGroup(row),
+		})
+	}
+	return samples, nil
+}
+
+func homeSamplesSQL() string {
+	return `
 		SELECT
-			COALESCE((
+			COALESCE(
+			(
 				SELECT MAX(CASE
-					WHEN fa.request_id = fe.request_id AND fe.request_id <> '' AND fa.event_type IN ('favorite', 'subscribe') THEN 1.0
-					WHEN fa.request_id = fe.request_id AND fe.request_id <> '' AND fa.event_type = 'reply' THEN 0.9
-					WHEN fa.request_id = fe.request_id AND fe.request_id <> '' AND fa.event_type IN ('open', 'click') THEN 0.7
+					WHEN fa.event_type IN ('favorite', 'subscribe') THEN 1.0
+					WHEN fa.event_type = 'reply' THEN 0.9
+					WHEN fa.event_type IN ('open', 'click') THEN 0.7
+					WHEN fa.event_type IN ('hide', 'report') THEN 0.0
+					ELSE NULL
+				END)
+				FROM feed_event fa
+				WHERE fa.user_id = fe.user_id
+					AND fa.hole_id = fe.hole_id
+					AND fa.request_id = fe.request_id
+					AND fe.request_id <> ''
+					AND fa.event_type IN ('open', 'click', 'reply', 'favorite', 'subscribe', 'hide', 'report')
+					AND fa.created_at >= fe.created_at
+					AND fa.created_at < DATE_ADD(fe.created_at, INTERVAL 2 HOUR)
+			),
+			(
+				SELECT MAX(CASE
 					WHEN fa.event_type IN ('favorite', 'subscribe') AND fa.created_at < DATE_ADD(fe.created_at, INTERVAL 30 MINUTE) THEN 0.85
 					WHEN fa.event_type = 'reply' AND fa.created_at < DATE_ADD(fe.created_at, INTERVAL 30 MINUTE) THEN 0.75
 					WHEN fa.event_type IN ('open', 'click') AND fa.created_at < DATE_ADD(fe.created_at, INTERVAL 30 MINUTE) THEN 0.55
@@ -415,9 +466,11 @@ func loadHomeSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 				WHERE fa.user_id = fe.user_id
 					AND fa.hole_id = fe.hole_id
 					AND fa.event_type IN ('open', 'click', 'reply', 'favorite', 'subscribe', 'hide', 'report')
+					AND fe.request_id = ''
 					AND fa.created_at >= fe.created_at
 					AND fa.created_at < DATE_ADD(fe.created_at, INTERVAL 2 HOUR)
-			), 0) AS label,
+			),
+			0) AS label,
 			fe.user_id,
 			fe.request_id,
 			h.reply,
@@ -469,20 +522,7 @@ func loadHomeSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 			AND fe.event_type = 'impression'
 		ORDER BY fe.created_at DESC
 		LIMIT ?
-	`, days, limit).Scan(&rows).Error
-	if err != nil {
-		return nil, err
-	}
-	samples := make([]sample, 0, len(rows))
-	for _, row := range rows {
-		samples = append(samples, sample{
-			label:    row.Label,
-			features: homeFeatures(row),
-			at:       row.SampleAt,
-			group:    homeGroup(row),
-		})
-	}
-	return samples, nil
+	`
 }
 
 func homeGroup(row homeRow) string {
