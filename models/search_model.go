@@ -23,7 +23,7 @@ type searchHoleContext struct {
 	tagCount   int
 }
 
-func applySearchModelRerank(c *fiber.Ctx, keyword string, floors Floors, baseRanks map[int]int, baseScores map[int]*float64, now time.Time) Floors {
+func applySearchModelRerank(c *fiber.Ctx, keyword string, floors Floors, baseRanks map[int]int, baseScores map[int]*float64, accurate bool, source string, now time.Time) Floors {
 	if !config.Config.SearchModelRanking || len(floors) <= 1 {
 		return floors
 	}
@@ -57,7 +57,7 @@ func applySearchModelRerank(c *fiber.Ctx, keyword string, floors Floors, baseRan
 		if !ok {
 			baseRank = position
 		}
-		score := model.Score(searchModelFeatures(keyword, floor, contexts[floor.HoleID], baseRank, baseScores[floor.ID], now))
+		score := model.Score(searchModelFeatures(keyword, floor, contexts[floor.HoleID], baseRank, baseScores[floor.ID], accurate, source, now))
 		scored = append(scored, struct {
 			floor    *Floor
 			score    float64
@@ -133,7 +133,7 @@ func loadSearchHoleContexts(floors Floors) map[int]searchHoleContext {
 	return contexts
 }
 
-func searchModelFeatures(keyword string, floor *Floor, ctx searchHoleContext, baseRank int, baseScore *float64, now time.Time) map[string]float64 {
+func searchModelFeatures(keyword string, floor *Floor, ctx searchHoleContext, baseRank int, baseScore *float64, accurate bool, source string, now time.Time) map[string]float64 {
 	queryHash, queryLength, queryTermCount := searchQueryStats(keyword)
 	_ = queryHash
 	hole := ctx.hole
@@ -166,6 +166,12 @@ func searchModelFeatures(keyword string, floor *Floor, ctx searchHoleContext, ba
 	if baseScore != nil {
 		features["base_score"] = *baseScore
 		features["base_score_log"] = math.Log1p(math.Max(*baseScore, 0))
+	}
+	if accurate {
+		features["accurate"] = 1
+	}
+	if source == "elastic" {
+		features["source_elastic"] = 1
 	}
 	if floor.Ranking == 0 {
 		features["is_first_floor"] = 1

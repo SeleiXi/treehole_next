@@ -408,7 +408,7 @@ func SearchWithRequest(c *fiber.Ctx, keyword string, size, offset int, accurate 
 		return nil, err
 	}
 	floors = applySearchFeedbackFatigue(DB, c, floors, size, now)
-	floors = applySearchModelRerank(c, keyword, floors, baseRanks, baseScores, now)
+	floors = applySearchModelRerank(c, keyword, floors, baseRanks, baseScores, accurate, "elastic", now)
 
 	highlightedFloors := make(HighlightedFloors, len(floors))
 	for i, floor := range floors {
@@ -483,7 +483,7 @@ func searchOldWithRequest(c *fiber.Ctx, keyword string, size, offset int, startT
 		}
 	}
 	floors = applySearchFeedbackFatigue(DB, c, floors, size, now)
-	floors = applySearchModelRerank(c, keyword, floors, baseRanks, nil, now)
+	floors = applySearchModelRerank(c, keyword, floors, baseRanks, nil, accurate, "db", now)
 	result, err := PreprocessAndHighlight(c, floors, keyword)
 	if err != nil {
 		return nil, err
