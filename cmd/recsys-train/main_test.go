@@ -60,11 +60,11 @@ func TestEvaluateReportsModelAndBaselineMetrics(t *testing.T) {
 
 func TestTrainingQueriesGateLooseFallbackToLegacyEmptyRequestID(t *testing.T) {
 	searchSQL := searchSamplesSQL()
-	assert.Contains(t, searchSQL, "fe.request_id = se.request_id")
-	assert.Contains(t, searchSQL, "AND se.request_id <> ''")
-	assert.Contains(t, searchSQL, "AND se.request_id = ''")
-
-	assert.GreaterOrEqual(t, strings.Count(searchSQL, "request_id = ''"), 1)
+	assert.Contains(t, searchSQL, "se.floor_id")
+	assert.Contains(t, searchSQL, "se.hole_id")
+	assert.Contains(t, searchSQL, "0 AS label")
+	assert.Contains(t, searchSQL, "0 AS tag_count")
+	assert.Contains(t, searchSQL, "FORCE INDEX (idx_search_event_type_created)")
 }
 
 func TestApplyHomeFeedbackGatesLooseFallbackToLegacyEmptyRequestID(t *testing.T) {
@@ -96,6 +96,81 @@ func TestApplyHomeFeedbackGatesLooseFallbackToLegacyEmptyRequestID(t *testing.T)
 
 	assert.Equal(t, 0.0, rows[0].Label)
 	assert.Equal(t, 0.55, rows[1].Label)
+}
+
+func TestApplySearchFeedbackPreservesExactRequestPriority(t *testing.T) {
+	sampleAt := time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
+	rows := []searchRow{{
+		UserID:    42,
+		QueryHash: strings.Repeat("a", 64),
+		RequestID: "search-request",
+		FloorID:   10,
+		HoleID:    1,
+		SampleAt:  sampleAt,
+	}}
+	searchEvents := []searchActionEvent{
+		{
+			UserID:    42,
+			QueryHash: rows[0].QueryHash,
+			RequestID: "search-request",
+			FloorID:   10,
+			EventType: "hide",
+			CreatedAt: sampleAt.Add(time.Minute),
+		},
+	}
+	feedEvents := []homeFeedbackEvent{
+		{
+			UserID:    42,
+			HoleID:    1,
+			RequestID: "search-request",
+			EventType: "favorite",
+			CreatedAt: sampleAt.Add(2 * time.Minute),
+		},
+	}
+
+	applySearchFeedback(rows, searchEvents, feedEvents)
+
+	assert.Equal(t, 0.0, rows[0].Label)
+}
+
+func TestApplySearchFeedbackUsesFeedAndLegacyFallbacks(t *testing.T) {
+	sampleAt := time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
+	rows := []searchRow{
+		{
+			UserID:    42,
+			QueryHash: strings.Repeat("a", 64),
+			RequestID: "search-request",
+			FloorID:   10,
+			HoleID:    1,
+			SampleAt:  sampleAt,
+		},
+		{
+			UserID:   42,
+			HoleID:   1,
+			SampleAt: sampleAt,
+		},
+	}
+	feedEvents := []homeFeedbackEvent{
+		{
+			UserID:    42,
+			HoleID:    1,
+			RequestID: "search-request",
+			EventType: "open",
+			CreatedAt: sampleAt.Add(time.Minute),
+		},
+		{
+			UserID:    42,
+			HoleID:    1,
+			RequestID: "other-request",
+			EventType: "reply",
+			CreatedAt: sampleAt.Add(2 * time.Minute),
+		},
+	}
+
+	applySearchFeedback(rows, nil, feedEvents)
+
+	assert.Equal(t, 0.7, rows[0].Label)
+	assert.Equal(t, 0.75, rows[1].Label)
 }
 
 func TestHomeTrainingQuerySelectsHoleIDForAffinityEnrichment(t *testing.T) {

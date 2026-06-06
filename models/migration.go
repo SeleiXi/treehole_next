@@ -86,6 +86,7 @@ func recsysMySQLCreateStatements() []string {
 			KEY idx_search_event_user_created (user_id, created_at),
 			KEY idx_search_event_user_query_created (user_id, query_hash, created_at),
 			KEY idx_search_event_user_hole_created (user_id, hole_id, created_at),
+			KEY idx_search_event_user_floor_type_created (user_id, floor_id, event_type, created_at),
 			KEY idx_search_event_req_user_query_floor_type_created (request_id, user_id, query_hash, floor_id, event_type, created_at),
 			KEY idx_search_event_request_dedupe (request_id, user_id, event_type, floor_id),
 			KEY idx_search_event_query_created (query_hash, created_at),
@@ -122,6 +123,11 @@ func recsysMySQLOperationalIndexes() []recsysMySQLIndex {
 			table:     "search_event",
 			name:      "idx_search_event_type_created",
 			statement: "ALTER TABLE search_event ADD INDEX idx_search_event_type_created (event_type, created_at)",
+		},
+		{
+			table:     "search_event",
+			name:      "idx_search_event_user_floor_type_created",
+			statement: "ALTER TABLE search_event ADD INDEX idx_search_event_user_floor_type_created (user_id, floor_id, event_type, created_at)",
 		},
 	}
 }

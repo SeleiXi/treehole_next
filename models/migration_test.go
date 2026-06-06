@@ -24,6 +24,7 @@ func TestMigrateRecsysTablesCreatesOperationalTables(t *testing.T) {
 	require.True(t, db.Migrator().HasIndex(&FeedEvent{}, "idx_feed_event_user_hole_type_created"))
 	require.True(t, db.Migrator().HasIndex(&SearchEvent{}, "idx_search_event_req_user_query_floor_type_created"))
 	require.True(t, db.Migrator().HasIndex(&SearchEvent{}, "idx_search_event_type_created"))
+	require.True(t, db.Migrator().HasIndex(&SearchEvent{}, "idx_search_event_user_floor_type_created"))
 }
 
 func TestRecsysMySQLCreateStatementsUseStableCollation(t *testing.T) {
@@ -38,6 +39,7 @@ func TestRecsysMySQLCreateStatementsIncludeTrainingIndexes(t *testing.T) {
 	require.Contains(t, statements, "idx_feed_event_user_hole_type_created")
 	require.Contains(t, statements, "idx_search_event_req_user_query_floor_type_created")
 	require.Contains(t, statements, "idx_search_event_type_created")
+	require.Contains(t, statements, "idx_search_event_user_floor_type_created")
 }
 
 func TestRecsysMySQLOperationalIndexesIncludeTrainingIndexes(t *testing.T) {
@@ -50,4 +52,5 @@ func TestRecsysMySQLOperationalIndexesIncludeTrainingIndexes(t *testing.T) {
 	require.Contains(t, names, "idx_feed_event_user_hole_type_created")
 	require.Contains(t, names, "idx_search_event_req_user_query_floor_type_created")
 	require.Contains(t, names, "idx_search_event_type_created")
+	require.Contains(t, names, "idx_search_event_user_floor_type_created")
 }

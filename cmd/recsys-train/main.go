@@ -157,6 +157,8 @@ type searchRow struct {
 	UserID            int
 	QueryHash         string
 	RequestID         string
+	FloorID           int
+	HoleID            int
 	QueryLength       int
 	QueryTermCount    int
 	Position          int
@@ -195,6 +197,12 @@ func loadSearchSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := enrichSearchFeedback(db, rows); err != nil {
+		return nil, err
+	}
+	if err := enrichSearchTagCounts(db, rows); err != nil {
+		return nil, err
+	}
 	samples := make([]sample, 0, len(rows))
 	for _, row := range rows {
 		samples = append(samples, sample{
@@ -210,63 +218,12 @@ func loadSearchSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 func searchSamplesSQL() string {
 	return `
 		SELECT
-			COALESCE(
-				(
-					SELECT MAX(CASE
-						WHEN sae.event_type IN ('favorite', 'subscribe') THEN 1.0
-						WHEN sae.event_type = 'reply' THEN 0.9
-						WHEN sae.event_type IN ('open', 'click') THEN 0.7
-						WHEN sae.event_type IN ('hide', 'report') THEN 0.0
-						ELSE NULL
-					END)
-					FROM search_event sae
-					WHERE sae.user_id = se.user_id
-						AND sae.query_hash = se.query_hash
-						AND sae.request_id = se.request_id
-						AND sae.floor_id = se.floor_id
-						AND sae.event_type IN ('open', 'click', 'reply', 'favorite', 'subscribe', 'hide', 'report')
-						AND se.request_id <> ''
-						AND sae.created_at >= se.created_at
-						AND sae.created_at < DATE_ADD(se.created_at, INTERVAL 2 HOUR)
-				),
-				(
-					SELECT MAX(CASE
-						WHEN fe.event_type IN ('favorite', 'subscribe') THEN 1.0
-						WHEN fe.event_type = 'reply' THEN 0.9
-						WHEN fe.event_type IN ('open', 'click') THEN 0.7
-						WHEN fe.event_type IN ('hide', 'report') THEN 0.0
-						ELSE NULL
-					END)
-					FROM feed_event fe
-					WHERE fe.user_id = se.user_id
-						AND fe.hole_id = se.hole_id
-						AND fe.request_id = se.request_id
-						AND se.request_id <> ''
-						AND fe.event_type IN ('open', 'click', 'reply', 'favorite', 'subscribe', 'hide', 'report')
-						AND fe.created_at >= se.created_at
-						AND fe.created_at < DATE_ADD(se.created_at, INTERVAL 30 MINUTE)
-				),
-				(
-					SELECT MAX(CASE
-						WHEN fe.event_type IN ('favorite', 'subscribe') THEN 0.85
-						WHEN fe.event_type = 'reply' THEN 0.75
-						WHEN fe.event_type IN ('open', 'click') THEN 0.55
-						WHEN fe.event_type IN ('hide', 'report') THEN 0.0
-						ELSE NULL
-					END)
-					FROM feed_event fe
-					WHERE fe.user_id = se.user_id
-						AND fe.hole_id = se.hole_id
-						AND fe.event_type IN ('open', 'click', 'reply', 'favorite', 'subscribe', 'hide', 'report')
-						AND se.request_id = ''
-						AND fe.created_at >= se.created_at
-						AND fe.created_at < DATE_ADD(se.created_at, INTERVAL 30 MINUTE)
-				),
-				0
-			) AS label,
+			0 AS label,
 			se.user_id,
 			se.query_hash,
 			se.request_id,
+			se.floor_id,
+			se.hole_id,
 			se.query_length,
 			se.query_term_count,
 			se.position,
@@ -289,7 +246,7 @@ func searchSamplesSQL() string {
 			h.division_id,
 			h.favorite_count,
 			h.subscription_count,
-			COALESCE(tc.tag_count, 0) AS tag_count,
+			0 AS tag_count,
 			hf.updated_at AS feature_updated_at,
 			hf.hot_score,
 			hf.quality_score,
@@ -297,13 +254,10 @@ func searchSamplesSQL() string {
 			hf.reply24h,
 			hf.view24h,
 			se.created_at AS sample_at
-		FROM search_event se
+		FROM search_event se FORCE INDEX (idx_search_event_type_created)
 		JOIN floor f ON f.id = se.floor_id
 		JOIN hole h ON h.id = se.hole_id
 		LEFT JOIN hole_feature hf ON hf.hole_id = se.hole_id
-		LEFT JOIN (
-			SELECT hole_id, COUNT(*) AS tag_count FROM hole_tags GROUP BY hole_id
-		) tc ON tc.hole_id = se.hole_id
 		WHERE se.event_type = 'impression'
 			AND se.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
 		ORDER BY se.created_at DESC
@@ -319,6 +273,231 @@ func searchGroup(row searchRow) string {
 		return row.QueryHash
 	}
 	return fmt.Sprintf("user:%d", row.UserID)
+}
+
+type searchActionEvent struct {
+	UserID    int
+	QueryHash string
+	RequestID string
+	FloorID   int
+	EventType string
+	CreatedAt time.Time
+}
+
+func enrichSearchFeedback(db *gorm.DB, rows []searchRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	userIDs := map[int]bool{}
+	floorIDs := map[int]bool{}
+	holeIDs := map[int]bool{}
+	var minSampleAt time.Time
+	var maxSampleAt time.Time
+	for _, row := range rows {
+		if row.UserID != 0 {
+			userIDs[row.UserID] = true
+		}
+		if row.FloorID != 0 {
+			floorIDs[row.FloorID] = true
+		}
+		if row.HoleID != 0 {
+			holeIDs[row.HoleID] = true
+		}
+		if row.SampleAt.IsZero() {
+			continue
+		}
+		if minSampleAt.IsZero() || row.SampleAt.Before(minSampleAt) {
+			minSampleAt = row.SampleAt
+		}
+		if maxSampleAt.IsZero() || row.SampleAt.After(maxSampleAt) {
+			maxSampleAt = row.SampleAt
+		}
+	}
+	if len(userIDs) == 0 || minSampleAt.IsZero() || maxSampleAt.IsZero() {
+		return nil
+	}
+
+	var searchEvents []searchActionEvent
+	if len(floorIDs) != 0 {
+		if err := db.Table("search_event FORCE INDEX (idx_search_event_user_floor_type_created)").
+			Select("user_id, query_hash, request_id, floor_id, event_type, created_at").
+			Where("user_id IN ?", boolMapIntKeys(userIDs)).
+			Where("floor_id IN ?", boolMapIntKeys(floorIDs)).
+			Where("event_type IN ?", searchFeedbackEventTypes()).
+			Where("created_at >= ?", minSampleAt).
+			Where("created_at < ?", maxSampleAt.Add(2*time.Hour)).
+			Order("user_id ASC, floor_id ASC, created_at ASC").
+			Find(&searchEvents).Error; err != nil {
+			return err
+		}
+	}
+
+	var feedEvents []homeFeedbackEvent
+	if len(holeIDs) != 0 {
+		if err := db.Table("feed_event FORCE INDEX (idx_feed_event_user_hole_type_created)").
+			Select("user_id, hole_id, event_type, request_id, created_at").
+			Where("user_id IN ?", boolMapIntKeys(userIDs)).
+			Where("hole_id IN ?", boolMapIntKeys(holeIDs)).
+			Where("event_type IN ?", searchFeedbackEventTypes()).
+			Where("created_at >= ?", minSampleAt).
+			Where("created_at < ?", maxSampleAt.Add(30*time.Minute)).
+			Order("user_id ASC, hole_id ASC, created_at ASC").
+			Find(&feedEvents).Error; err != nil {
+			return err
+		}
+	}
+
+	applySearchFeedback(rows, searchEvents, feedEvents)
+	return nil
+}
+
+func enrichSearchTagCounts(db *gorm.DB, rows []searchRow) error {
+	holeIDs := map[int]bool{}
+	for _, row := range rows {
+		if row.HoleID != 0 {
+			holeIDs[row.HoleID] = true
+		}
+	}
+	tags, err := loadHomeAffinityTags(db, boolMapIntKeys(holeIDs))
+	if err != nil {
+		return err
+	}
+	for i := range rows {
+		rows[i].TagCount = len(tags[rows[i].HoleID])
+	}
+	return nil
+}
+
+func applySearchFeedback(rows []searchRow, searchEvents []searchActionEvent, feedEvents []homeFeedbackEvent) {
+	searchByKey := map[string][]searchActionEvent{}
+	for _, event := range searchEvents {
+		key := searchEventLookupKey(event.UserID, event.QueryHash, event.RequestID, event.FloorID)
+		searchByKey[key] = append(searchByKey[key], event)
+	}
+	feedByUserHole := map[string][]homeFeedbackEvent{}
+	for _, event := range feedEvents {
+		key := homeUserHoleKey(event.UserID, event.HoleID)
+		feedByUserHole[key] = append(feedByUserHole[key], event)
+	}
+	for key := range searchByKey {
+		sort.SliceStable(searchByKey[key], func(i, j int) bool {
+			return searchByKey[key][i].CreatedAt.Before(searchByKey[key][j].CreatedAt)
+		})
+	}
+	for key := range feedByUserHole {
+		sort.SliceStable(feedByUserHole[key], func(i, j int) bool {
+			return feedByUserHole[key][i].CreatedAt.Before(feedByUserHole[key][j].CreatedAt)
+		})
+	}
+
+	for i := range rows {
+		row := &rows[i]
+		if row.SampleAt.IsZero() {
+			continue
+		}
+		if label, ok := exactSearchLabel(row, searchByKey); ok {
+			row.Label = label
+			continue
+		}
+		if label, ok := exactSearchFeedLabel(row, feedByUserHole); ok {
+			row.Label = label
+			continue
+		}
+		row.Label = legacySearchFeedLabel(row, feedByUserHole)
+	}
+}
+
+func exactSearchLabel(row *searchRow, searchByKey map[string][]searchActionEvent) (float64, bool) {
+	if row.RequestID == "" {
+		return 0, false
+	}
+	events := searchByKey[searchEventLookupKey(row.UserID, row.QueryHash, row.RequestID, row.FloorID)]
+	end := row.SampleAt.Add(2 * time.Hour)
+	label := 0.0
+	matched := false
+	for _, event := range events {
+		if event.CreatedAt.Before(row.SampleAt) {
+			continue
+		}
+		if !event.CreatedAt.Before(end) {
+			break
+		}
+		weight, ok := exactLabelWeight(event.EventType)
+		if ok {
+			matched = true
+			label = math.Max(label, weight)
+		}
+	}
+	return label, matched
+}
+
+func exactSearchFeedLabel(row *searchRow, feedByUserHole map[string][]homeFeedbackEvent) (float64, bool) {
+	if row.RequestID == "" {
+		return 0, false
+	}
+	events := feedByUserHole[homeUserHoleKey(row.UserID, row.HoleID)]
+	end := row.SampleAt.Add(30 * time.Minute)
+	label := 0.0
+	matched := false
+	for _, event := range events {
+		if event.CreatedAt.Before(row.SampleAt) {
+			continue
+		}
+		if !event.CreatedAt.Before(end) {
+			break
+		}
+		if event.RequestID != row.RequestID {
+			continue
+		}
+		weight, ok := exactLabelWeight(event.EventType)
+		if ok {
+			matched = true
+			label = math.Max(label, weight)
+		}
+	}
+	return label, matched
+}
+
+func legacySearchFeedLabel(row *searchRow, feedByUserHole map[string][]homeFeedbackEvent) float64 {
+	if row.RequestID != "" {
+		return 0
+	}
+	events := feedByUserHole[homeUserHoleKey(row.UserID, row.HoleID)]
+	end := row.SampleAt.Add(30 * time.Minute)
+	label := 0.0
+	for _, event := range events {
+		if event.CreatedAt.Before(row.SampleAt) {
+			continue
+		}
+		if !event.CreatedAt.Before(end) {
+			break
+		}
+		label = math.Max(label, legacyHomeLabelWeight(event.EventType, event.CreatedAt, end))
+	}
+	return label
+}
+
+func exactLabelWeight(eventType string) (float64, bool) {
+	switch eventType {
+	case "favorite", "subscribe":
+		return 1.0, true
+	case "reply":
+		return 0.9, true
+	case "open", "click":
+		return 0.7, true
+	case "hide", "report":
+		return 0, true
+	default:
+		return 0, false
+	}
+}
+
+func searchFeedbackEventTypes() []string {
+	return []string{"open", "click", "reply", "favorite", "subscribe", "hide", "report"}
+}
+
+func searchEventLookupKey(userID int, queryHash string, requestID string, floorID int) string {
+	return fmt.Sprintf("%d:%s:%s:%d", userID, queryHash, requestID, floorID)
 }
 
 func searchFeatures(row searchRow) map[string]float64 {
