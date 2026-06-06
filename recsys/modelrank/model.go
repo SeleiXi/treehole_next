@@ -57,6 +57,22 @@ func (model *LinearModel) normalize(name string, value float64) float64 {
 	return (value - stats.Mean) / stats.Std
 }
 
+func (model *LinearModel) SupportsTask(tasks ...string) bool {
+	if model == nil {
+		return false
+	}
+	modelTask := strings.ToLower(strings.TrimSpace(model.Task))
+	if modelTask == "" {
+		return true
+	}
+	for _, task := range tasks {
+		if modelTask == strings.ToLower(strings.TrimSpace(task)) {
+			return true
+		}
+	}
+	return false
+}
+
 type cacheEntry struct {
 	model   *LinearModel
 	err     error

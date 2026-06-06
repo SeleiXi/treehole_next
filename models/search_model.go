@@ -35,6 +35,10 @@ func applySearchModelRerank(c *fiber.Ctx, keyword string, floors Floors, baseRan
 	if model == nil {
 		return floors
 	}
+	if !model.SupportsTask("search") {
+		log.Warn().Str("path", config.Config.SearchModelPath).Str("task", model.Task).Msg("ignoring search rank model with incompatible task")
+		return floors
+	}
 	if now.IsZero() {
 		now = time.Now()
 	}

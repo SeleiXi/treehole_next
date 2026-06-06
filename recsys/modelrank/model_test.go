@@ -51,3 +51,10 @@ func TestLoadLinearModelCachesByFileMetadata(t *testing.T) {
 	assert.Equal(t, "test", model.Version)
 	assert.Equal(t, 5.0, model.Score(map[string]float64{"x": 2}))
 }
+
+func TestLinearModelSupportsTaskWithLegacyEmptyTask(t *testing.T) {
+	assert.True(t, (&LinearModel{}).SupportsTask("search"))
+	assert.True(t, (&LinearModel{Task: "home"}).SupportsTask("home", "feed"))
+	assert.True(t, (&LinearModel{Task: " Recommend "}).SupportsTask("recommend"))
+	assert.False(t, (&LinearModel{Task: "search"}).SupportsTask("home", "feed", "recommend"))
+}

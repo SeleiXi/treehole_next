@@ -48,6 +48,42 @@ func TestScoreCandidateUsesConfiguredModel(t *testing.T) {
 	assert.InDelta(t, 1+2*1.386294361, score, 0.000001)
 }
 
+func TestScoreCandidateIgnoresIncompatibleTaskModel(t *testing.T) {
+	oldEnabled := config.Config.RecsysModelRanking
+	oldPath := config.Config.RecsysModelPath
+	t.Cleanup(func() {
+		config.Config.RecsysModelRanking = oldEnabled
+		config.Config.RecsysModelPath = oldPath
+	})
+
+	path := filepath.Join(t.TempDir(), "search-model.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{
+		"version": "test-search",
+		"task": "search",
+		"intercept": 100,
+		"weights": {
+			"rule_score": 0
+		}
+	}`), 0o644))
+	config.Config.RecsysModelRanking = true
+	config.Config.RecsysModelPath = path
+
+	now := time.Now()
+	hole := &models.Hole{ID: 1, CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour)}
+	feedback := userFeedback{
+		opened:      map[int]int{},
+		negative:    map[int]bool{},
+		impressions: map[int]int{},
+		divisions:   map[int]float64{},
+		tags:        map[int]float64{},
+	}
+	ruleScore := scoreHole(hole, nil, now)
+
+	score := scoreCandidate(hole, nil, feedback, nil, now)
+
+	assert.InDelta(t, ruleScore, score, 0.000001)
+}
+
 func TestRankCandidatesUsesConfiguredModel(t *testing.T) {
 	oldEnabled := config.Config.RecsysModelRanking
 	oldPath := config.Config.RecsysModelPath

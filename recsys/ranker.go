@@ -73,6 +73,10 @@ func loadRecsysRankModel() *modelrank.LinearModel {
 		log.Warn().Err(err).Str("path", config.Config.RecsysModelPath).Msg("could not load recsys rank model")
 		return nil
 	}
+	if model != nil && !model.SupportsTask("home", "feed", "recommend") {
+		log.Warn().Str("path", config.Config.RecsysModelPath).Str("task", model.Task).Msg("ignoring recsys rank model with incompatible task")
+		return nil
+	}
 	return model
 }
 

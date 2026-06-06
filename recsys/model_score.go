@@ -4,8 +4,6 @@ import (
 	"math"
 	"time"
 
-	"github.com/rs/zerolog/log"
-
 	"treehole_next/config"
 	"treehole_next/models"
 	"treehole_next/recsys/modelrank"
@@ -16,11 +14,7 @@ func scoreCandidate(hole *models.Hole, feature *models.HoleFeature, feedback use
 	if !config.Config.RecsysModelRanking {
 		return ruleScore
 	}
-	model, err := modelrank.Load(config.Config.RecsysModelPath)
-	if err != nil {
-		log.Warn().Err(err).Str("path", config.Config.RecsysModelPath).Msg("could not load recsys rank model")
-		return ruleScore
-	}
+	model := loadRecsysRankModel()
 	if model == nil {
 		return ruleScore
 	}
