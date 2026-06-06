@@ -1,6 +1,7 @@
 package models
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -131,4 +132,40 @@ func TestSearchModelFeaturesIncludeAccurateAndSource(t *testing.T) {
 	features = searchModelFeatures("needle", floor, ctx, 0, nil, false, "db", now)
 	assert.NotContains(t, features, "accurate")
 	assert.NotContains(t, features, "source_elastic")
+}
+
+func TestSearchModelFeaturesIgnoreFutureFeatureSnapshot(t *testing.T) {
+	now := time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
+	floor := &Floor{
+		ID:        1,
+		HoleID:    1,
+		CreatedAt: now.Add(-time.Hour),
+		Content:   "needle",
+	}
+	ctx := searchHoleContext{
+		hole: Hole{
+			ID:        1,
+			Reply:     3,
+			View:      7,
+			CreatedAt: now.Add(-2 * time.Hour),
+			UpdatedAt: now.Add(-time.Hour),
+		},
+		feature: HoleFeature{
+			UpdatedAt:    now.Add(time.Minute),
+			HotScore:     20,
+			QualityScore: 10,
+			Reply24h:     100,
+			View24h:      200,
+		},
+		hasFeature: true,
+	}
+
+	features := searchModelFeatures("needle", floor, ctx, 0, nil, false, "db", now)
+	assert.NotContains(t, features, "feature_hot_score")
+	assert.NotContains(t, features, "feature_reply_24h_log")
+
+	ctx.feature.UpdatedAt = now.Add(-time.Minute)
+	features = searchModelFeatures("needle", floor, ctx, 0, nil, false, "db", now)
+	assert.Equal(t, ctx.feature.HotScore, features["feature_hot_score"])
+	assert.Equal(t, math.Log1p(float64(ctx.feature.Reply24h)), features["feature_reply_24h_log"])
 }

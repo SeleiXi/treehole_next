@@ -16,6 +16,14 @@ import (
 
 const searchFeatureMaxAge = 15 * time.Minute
 
+func searchFeatureFreshAt(updatedAt time.Time, now time.Time) bool {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	age := now.Sub(updatedAt)
+	return age >= 0 && age <= searchFeatureMaxAge
+}
+
 type searchHoleContext struct {
 	hole       Hole
 	feature    HoleFeature
@@ -188,7 +196,7 @@ func searchModelFeatures(keyword string, floor *Floor, ctx searchHoleContext, ba
 	if normalizedQuery != "" && strings.Contains(normalizedContent, normalizedQuery) {
 		features["query_exact_substring"] = 1
 	}
-	if ctx.hasFeature && ctx.feature.UpdatedAt.After(now.Add(-searchFeatureMaxAge)) {
+	if ctx.hasFeature && searchFeatureFreshAt(ctx.feature.UpdatedAt, now) {
 		features["feature_hot_score"] = ctx.feature.HotScore
 		features["feature_quality_score"] = ctx.feature.QualityScore
 		features["feature_controversy_score"] = ctx.feature.ControversyScore

@@ -1,6 +1,7 @@
 package recsys
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -119,6 +120,63 @@ func TestScoreCandidateModelUsesBaseRuleScoreFeature(t *testing.T) {
 
 	assert.InDelta(t, baseRuleScore, score, 0.000001)
 	assert.Less(t, baseRuleScore-feedback.penalty(hole.ID), score)
+}
+
+func TestScoreHoleIgnoresFutureFeatureSnapshot(t *testing.T) {
+	now := time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
+	hole := &models.Hole{
+		ID:        1,
+		Reply:     3,
+		View:      7,
+		CreatedAt: now.Add(-2 * time.Hour),
+		UpdatedAt: now.Add(-time.Hour),
+	}
+	feature := &models.HoleFeature{
+		Reply24h:         100,
+		View24h:          200,
+		HotScore:         20,
+		QualityScore:     10,
+		ControversyScore: 5,
+	}
+
+	noFeatureScore := scoreHole(hole, nil, now)
+	feature.UpdatedAt = now.Add(time.Minute)
+	futureFeatureScore := scoreHole(hole, feature, now)
+	feature.UpdatedAt = now.Add(-time.Minute)
+	pastFeatureScore := scoreHole(hole, feature, now)
+
+	assert.InDelta(t, noFeatureScore, futureFeatureScore, 0.000001)
+	assert.Greater(t, pastFeatureScore, noFeatureScore)
+}
+
+func TestCandidateFeaturesIgnoreFutureFeatureSnapshot(t *testing.T) {
+	now := time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
+	hole := &models.Hole{
+		ID:        1,
+		Reply:     3,
+		View:      7,
+		CreatedAt: now.Add(-2 * time.Hour),
+		UpdatedAt: now.Add(-time.Hour),
+	}
+	feature := &models.HoleFeature{
+		Reply24h:     100,
+		View24h:      200,
+		HotScore:     20,
+		QualityScore: 10,
+		Reply1h:      4,
+		View1h:       5,
+	}
+	feedback := userFeedback{}
+
+	feature.UpdatedAt = now.Add(time.Minute)
+	features := candidateFeatures(hole, feature, feedback, nil, now, 1)
+	assert.NotContains(t, features, "feature_hot_score")
+	assert.Equal(t, math.Log1p(float64(hole.Reply)), features["reply_24h_log"])
+
+	feature.UpdatedAt = now.Add(-time.Minute)
+	features = candidateFeatures(hole, feature, feedback, nil, now, 1)
+	assert.Equal(t, feature.HotScore, features["feature_hot_score"])
+	assert.Equal(t, math.Log1p(float64(feature.Reply24h)), features["reply_24h_log"])
 }
 
 func TestRankCandidatesUsesConfiguredModel(t *testing.T) {

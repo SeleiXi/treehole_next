@@ -18,7 +18,7 @@ type scoredHole struct {
 func scoreHole(hole *models.Hole, feature *models.HoleFeature, now time.Time) float64 {
 	reply24h := float64(hole.Reply)
 	view24h := float64(hole.View)
-	freshFeature := feature != nil && feature.UpdatedAt.After(now.Add(-featureMaxAge))
+	freshFeature := feature != nil && featureFreshAt(feature.UpdatedAt, now)
 	if freshFeature {
 		reply24h = float64(feature.Reply24h)
 		view24h = float64(feature.View24h)
@@ -49,4 +49,12 @@ func scoreHole(hole *models.Hole, feature *models.HoleFeature, now time.Time) fl
 		score += 0.35*feature.HotScore + 0.5*feature.QualityScore - 0.25*feature.ControversyScore
 	}
 	return score
+}
+
+func featureFreshAt(updatedAt time.Time, now time.Time) bool {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	age := now.Sub(updatedAt)
+	return age >= 0 && age <= featureMaxAge
 }

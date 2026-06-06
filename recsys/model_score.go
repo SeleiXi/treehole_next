@@ -32,7 +32,7 @@ func scoreCandidateWithModel(hole *models.Hole, feature *models.HoleFeature, fee
 func candidateFeatures(hole *models.Hole, feature *models.HoleFeature, feedback userFeedback, tagIDs []int, now time.Time, ruleScore float64) map[string]float64 {
 	reply24h := float64(hole.Reply)
 	view24h := float64(hole.View)
-	freshFeature := feature != nil && feature.UpdatedAt.After(now.Add(-featureMaxAge))
+	freshFeature := feature != nil && featureFreshAt(feature.UpdatedAt, now)
 	if freshFeature {
 		reply24h = float64(feature.Reply24h)
 		view24h = float64(feature.View24h)
