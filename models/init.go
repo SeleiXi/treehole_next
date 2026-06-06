@@ -3,6 +3,7 @@ package models
 import (
 	"time"
 
+	drivermysql "github.com/go-sql-driver/mysql"
 	"github.com/rs/zerolog/log"
 
 	"treehole_next/config"
@@ -10,7 +11,7 @@ import (
 	"gorm.io/gorm/logger"
 	"gorm.io/plugin/dbresolver"
 
-	"gorm.io/driver/mysql"
+	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
 )
@@ -35,7 +36,7 @@ var gormConfig = &gorm.Config{
 // Read/Write Splitting
 func mysqlDB() *gorm.DB {
 	// set source databases
-	source := mysql.Open(config.Config.DbURL)
+	source := gormmysql.Open(withMySQLTimeoutDefaults(config.Config.DbURL))
 	db, err := gorm.Open(source, gormConfig)
 	if err != nil {
 		log.Fatal().Err(err).Send()
@@ -44,7 +45,7 @@ func mysqlDB() *gorm.DB {
 	// set replica databases
 	var replicas []gorm.Dialector
 	for _, url := range config.Config.MysqlReplicaURLs {
-		replicas = append(replicas, mysql.Open(url))
+		replicas = append(replicas, gormmysql.Open(withMySQLTimeoutDefaults(url)))
 	}
 	err = db.Use(dbresolver.Register(dbresolver.Config{
 		Sources:  []gorm.Dialector{source},
@@ -103,32 +104,54 @@ func InitDB() {
 		log.Fatal().Err(err).Send()
 	}
 
-	// models must be registered here to migrate into the database
-	err = DB.AutoMigrate(
-		&Division{},
-		&Tag{},
-		&User{},
-		&Floor{},
-		&Hole{},
-		&Report{},
-		&Punishment{},
-		&ReportPunishment{},
-		&Message{},
-		&FloorHistory{},
-		&AdminLog{},
-		&UserFavorite{},
-		&FavoriteGroup{},
-		&UrlHostnameBlacklist{},
-		&HoleFeature{},
-		&FeedEvent{},
-		&SearchEvent{},
-	)
-	if err != nil {
-		log.Fatal().Err(err).Send()
+	if config.Config.DisableAutoMigrate {
+		log.Info().Msg("auto migrate disabled")
+	} else {
+		// models must be registered here to migrate into the database
+		err = DB.AutoMigrate(
+			&Division{},
+			&Tag{},
+			&User{},
+			&Floor{},
+			&Hole{},
+			&Report{},
+			&Punishment{},
+			&ReportPunishment{},
+			&Message{},
+			&FloorHistory{},
+			&AdminLog{},
+			&UserFavorite{},
+			&FavoriteGroup{},
+			&UrlHostnameBlacklist{},
+			&HoleFeature{},
+			&FeedEvent{},
+			&SearchEvent{},
+		)
+		if err != nil {
+			log.Fatal().Err(err).Send()
+		}
 	}
 
 	err = DB.Model(&UrlHostnameBlacklist{}).Pluck("hostname", &config.Config.UrlHostnameBlacklist).Error
 	if err != nil {
 		log.Fatal().Err(err).Send()
 	}
+}
+
+func withMySQLTimeoutDefaults(dsn string) string {
+	cfg, err := drivermysql.ParseDSN(dsn)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to parse mysql dsn for timeout defaults")
+		return dsn
+	}
+	if cfg.Timeout == 0 {
+		cfg.Timeout = 5 * time.Second
+	}
+	if cfg.ReadTimeout == 0 {
+		cfg.ReadTimeout = 30 * time.Second
+	}
+	if cfg.WriteTimeout == 0 {
+		cfg.WriteTimeout = 30 * time.Second
+	}
+	return cfg.FormatDSN()
 }
