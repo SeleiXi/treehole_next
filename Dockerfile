@@ -10,7 +10,7 @@ RUN apk add --no-cache \
 
 COPY . .
 
-RUN CGO_ENABLED=0 go build -tags production -ldflags "-s -w" -o treehole
+RUN CGO_ENABLED=0 go build -buildvcs=false -tags production -ldflags "-s -w" -o treehole
 
 FROM alpine
 

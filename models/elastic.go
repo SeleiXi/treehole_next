@@ -3,18 +3,16 @@ package models
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-
-	"github.com/elastic/go-elasticsearch/v8/typedapi/types"
-	"github.com/elastic/go-elasticsearch/v8/typedapi/types/enums/refresh"
-	"github.com/elastic/go-elasticsearch/v8/typedapi/types/enums/sortorder"
 	"github.com/opentreehole/go-common"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
@@ -22,13 +20,12 @@ import (
 	"treehole_next/config"
 	"treehole_next/utils"
 
-	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/goccy/go-json"
 
 	stdjson "encoding/json"
 )
 
-var ES *elasticsearch.TypedClient
+var ES *elasticHTTPClient
 
 const IndexName = "floors"
 
@@ -40,26 +37,129 @@ func Init() {
 	// export ELASTICSEARCH_URL environment variable to set the ElasticSearch URL
 	// example: http://user:pass@127.0.0.1:9200
 	var err error
-	ES, err = elasticsearch.NewTypedClient(elasticsearch.Config{
-		Addresses: []string{config.Config.ElasticsearchUrl},
-	})
+	ES, err = newElasticHTTPClient(config.Config.ElasticsearchUrl)
 	if err != nil {
 		log.Printf("error creating elasticsearch client: %s", err)
 		ES = nil
 		return
 	}
 
-	info, err := ES.Info().Do(context.Background())
+	res, err := ES.request(context.Background(), http.MethodGet, "", nil, "", nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("error getting elasticsearch response")
 	}
+	defer closeElasticResponse(res)
+	if elasticResponseIsError(res) {
+		log.Fatal().Int("status", res.StatusCode).Msg("error getting elasticsearch response")
+	}
+	var info elasticInfoResponse
+	if err := json.NewDecoder(res.Body).Decode(&info); err != nil {
+		log.Fatal().Err(err).Msg("error decoding elasticsearch response")
+	}
 
 	// print Client and Server Info
-	log.Info().Msgf("elasticsearch Client: %s\n", elasticsearch.Version)
+	log.Info().Str("url", ES.baseURL.String()).Msg("elasticsearch client configured")
 	//log.Info().Msgf("elasticsearch Server: %s", r["version"].(map[string]interface{})["number"])
-	log.Info().Msgf("elasticsearch Server: %s\n", info.Version.Int)
+	log.Info().Msgf("elasticsearch Server: %s\n", info.Version.Number)
 	log.Info().Msgf("elasticsearch Server Minimum Index Compatibility Version: %s\n", info.Version.MinimumIndexCompatibilityVersion)
 	log.Info().Msgf("elasticsearch Server Minimum Wire Compatibility Version: %s\n", info.Version.MinimumWireCompatibilityVersion)
+}
+
+type elasticHTTPClient struct {
+	baseURL  *url.URL
+	client   *http.Client
+	username string
+	password string
+}
+
+func newElasticHTTPClient(rawURL string) (*elasticHTTPClient, error) {
+	baseURL, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, err
+	}
+	if baseURL.Scheme == "" || baseURL.Host == "" {
+		return nil, fmt.Errorf("invalid elasticsearch url")
+	}
+
+	var username, password string
+	if baseURL.User != nil {
+		username = baseURL.User.Username()
+		password, _ = baseURL.User.Password()
+		baseURL.User = nil
+	}
+
+	return &elasticHTTPClient{
+		baseURL:  baseURL,
+		client:   &http.Client{Timeout: 30 * time.Second},
+		username: username,
+		password: password,
+	}, nil
+}
+
+func (client *elasticHTTPClient) request(ctx context.Context, method, path string, body io.Reader, contentType string, params url.Values) (*http.Response, error) {
+	endpoint := *client.baseURL
+	endpoint.Path = joinElasticPath(endpoint.Path, path)
+	endpoint.RawQuery = params.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, method, endpoint.String(), body)
+	if err != nil {
+		return nil, err
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	if client.username != "" || client.password != "" {
+		req.SetBasicAuth(client.username, client.password)
+	}
+	return client.client.Do(req)
+}
+
+func joinElasticPath(basePath, path string) string {
+	if path == "" {
+		if basePath == "" {
+			return "/"
+		}
+		return basePath
+	}
+	if basePath == "" || basePath == "/" {
+		return path
+	}
+	if basePath[len(basePath)-1] == '/' {
+		basePath = basePath[:len(basePath)-1]
+	}
+	return basePath + path
+}
+
+type elasticInfoResponse struct {
+	Version struct {
+		Number                           string `json:"number"`
+		MinimumIndexCompatibilityVersion string `json:"minimum_index_compatibility_version"`
+		MinimumWireCompatibilityVersion  string `json:"minimum_wire_compatibility_version"`
+	} `json:"version"`
+}
+
+type elasticSearchResponse struct {
+	Hits struct {
+		Hits []elasticSearchHit `json:"hits"`
+	} `json:"hits"`
+}
+
+type elasticSearchHit struct {
+	ID        string              `json:"_id"`
+	Score     *float64            `json:"_score"`
+	Highlight map[string][]string `json:"highlight"`
+}
+
+func closeElasticResponse(res *http.Response) {
+	if res == nil || res.Body == nil {
+		return
+	}
+	_, _ = io.Copy(io.Discard, res.Body)
+	_ = res.Body.Close()
+}
+
+func elasticResponseIsError(res *http.Response) bool {
+	return res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices
 }
 
 type FloorModel struct {
@@ -142,99 +242,115 @@ func SearchWithRequest(c *fiber.Ctx, keyword string, size, offset int, accurate 
 	// 	}
 	// }
 
-	var filterQueries []types.Query
-	var disMaxQueries []types.Query
+	var filterQueries []map[string]any
+	var disMaxQueries []map[string]any
 
 	if accurate {
-		disMaxQueries = []types.Query{
-			{MatchPhrase: map[string]types.MatchPhraseQuery{"content": {Query: keyword}}},
-			{MatchPhrase: map[string]types.MatchPhraseQuery{"content.ik_smart": {Query: keyword}}},
+		disMaxQueries = []map[string]any{
+			{"match_phrase": map[string]any{"content": map[string]any{"query": keyword}}},
+			{"match_phrase": map[string]any{"content.ik_smart": map[string]any{"query": keyword}}},
 		}
 	} else {
-		disMaxQueries = []types.Query{
-			{Match: map[string]types.MatchQuery{"content": {Query: keyword}}},
-			{Match: map[string]types.MatchQuery{"content.ik_smart": {Query: keyword}}},
+		disMaxQueries = []map[string]any{
+			{"match": map[string]any{"content": map[string]any{"query": keyword}}},
+			{"match": map[string]any{"content.ik_smart": map[string]any{"query": keyword}}},
 		}
 	}
 
 	if startTime != nil || endTime != nil {
-		dateRangeQuery := types.DateRangeQuery{}
+		dateRangeQuery := map[string]any{}
 		if startTime != nil {
 			start := time.Unix(*startTime, 0).UTC().Format(time.RFC3339)
-			dateRangeQuery.Gte = &start
+			dateRangeQuery["gte"] = start
 		}
 		if endTime != nil {
 			end := time.Unix(*endTime, 0).UTC().Format(time.RFC3339)
-			dateRangeQuery.Lte = &end
+			dateRangeQuery["lte"] = end
 		}
-		timeRangeQuery := types.Query{
-			Range: map[string]types.RangeQuery{
+		timeRangeQuery := map[string]any{
+			"range": map[string]any{
 				"updated_at": dateRangeQuery,
 			},
 		}
 		filterQueries = append(filterQueries, timeRangeQuery)
 	}
 
-	query := types.Query{
-		Bool: &types.BoolQuery{
-			Must: []types.Query{
-				{
-					DisMax: &types.DisMaxQuery{
-						Queries: disMaxQueries,
+	searchBody := map[string]any{
+		"from": offset,
+		"size": fetchSize,
+		"query": map[string]any{
+			"bool": map[string]any{
+				"must": []map[string]any{
+					{
+						"dis_max": map[string]any{
+							"queries": disMaxQueries,
+						},
 					},
 				},
+				"filter": filterQueries,
 			},
-			Filter: filterQueries,
+		},
+		"highlight": map[string]any{
+			"fields": map[string]any{
+				"content": map[string]any{
+					"number_of_fragments": 0,
+				},
+				"content.ik_smart": map[string]any{
+					"number_of_fragments": 0,
+				},
+			},
+			"pre_tags":  []string{HighlightBegin},
+			"post_tags": []string{HighlightEnd},
+		},
+		"sort": []map[string]any{
+			{
+				"_score": map[string]any{
+					"order": "desc",
+				},
+			},
+			{
+				"updated_at": map[string]any{
+					"order": "desc",
+				},
+			},
 		},
 	}
 
-	highlight := &types.Highlight{
-		Fields: map[string]types.HighlightField{
-			"content": {
-				NumberOfFragments: &[]int{0}[0],
-			},
-			"content.ik_smart": {
-				NumberOfFragments: &[]int{0}[0],
-			},
-		},
-		PreTags:  []string{HighlightBegin},
-		PostTags: []string{HighlightEnd},
-	}
-
-	res, err := ES.Search().
-		Index(IndexName).From(offset).
-		Size(fetchSize).Query(&query).
-		Highlight(highlight).
-		Sort(
-			types.SortOptions{
-				SortOptions: map[string]types.FieldSort{
-					"_score": {Order: &sortorder.Desc},
-				},
-			},
-			types.SortOptions{
-				SortOptions: map[string]types.FieldSort{
-					"updated_at": {Order: &sortorder.Desc},
-				},
-			}).
-		Do(context.Background())
-
+	body, err := json.Marshal(searchBody)
 	if err != nil {
-		var errorMsg = fmt.Sprintf("error searching floors: %e", err)
-		log.Err(err).Msg("error searching floors")
+		log.Err(err).Msg("error marshaling elasticsearch search request")
+		return nil, common.InternalServerError("error preparing search request")
+	}
 
-		var esError *types.ElasticsearchError
-		if errors.As(err, &esError) {
-			data, _ := json.Marshal(esError)
-			log.Err(err).
-				Bytes("error_detail", data).
-				Msg("error searching floors")
-			return nil, &common.HttpError{Code: esError.Status, Message: errorMsg}
-		}
-		return nil, common.InternalServerError(errorMsg)
+	res, err := ES.request(
+		context.Background(),
+		http.MethodPost,
+		"/"+IndexName+"/_search",
+		bytes.NewReader(body),
+		"application/json",
+		nil,
+	)
+	if err != nil {
+		log.Err(err).Msg("error searching floors")
+		return nil, common.InternalServerError(fmt.Sprintf("error searching floors: %e", err))
+	}
+	defer closeElasticResponse(res)
+	if elasticResponseIsError(res) {
+		errorMsg := fmt.Sprintf("error searching floors: elasticsearch status %d", res.StatusCode)
+		log.Error().
+			Int("status", res.StatusCode).
+			Msg("error searching floors")
+		return nil, &common.HttpError{Code: res.StatusCode, Message: errorMsg}
+	}
+
+	var searchResult elasticSearchResponse
+	if err := json.NewDecoder(res.Body).Decode(&searchResult); err != nil {
+		log.Err(err).Msg("error decoding elasticsearch search response")
+		return nil, common.InternalServerError("error decoding search response")
 	}
 
 	// get floors
-	floorSize := len(res.Hits.Hits)
+	floorSize := len(searchResult.Hits.Hits)
 	if floorSize == 0 {
 		return HighlightedFloors{}, nil
 	}
@@ -244,8 +360,8 @@ func SearchWithRequest(c *fiber.Ctx, keyword string, size, offset int, accurate 
 	highlightedContents := make(map[int]string)
 	baseRanks := make(map[int]int, floorSize)
 	baseScores := make(map[int]*float64, floorSize)
-	for i, hit := range res.Hits.Hits {
-		id, err := strconv.Atoi(*hit.Id_)
+	for i, hit := range searchResult.Hits.Hits {
+		id, err := strconv.Atoi(hit.ID)
 		if err != nil {
 			var errorMsg = "error parsing floor_id from ElasticSearch ID"
 			log.Err(err).Msg(errorMsg)
@@ -253,7 +369,10 @@ func SearchWithRequest(c *fiber.Ctx, keyword string, size, offset int, accurate 
 		}
 		floorIDs[i] = id
 		baseRanks[id] = offset + i
-		score := float64(hit.Score_)
+		score := float64(0)
+		if hit.Score != nil {
+			score = *hit.Score
+		}
 		baseScores[id] = &score
 		if hit.Highlight != nil {
 			var fragments []string
@@ -551,9 +670,24 @@ func BulkInsert(floors []FloorModel) {
 	}
 	log.Info().Ints("floor_ids", floorIDs).Msg("Preparing insert floors")
 
-	_, err := ES.Bulk().Index(IndexName).Raw(BulkBuffer).Do(context.Background())
+	res, err := ES.request(
+		context.Background(),
+		http.MethodPost,
+		"/"+IndexName+"/_bulk",
+		BulkBuffer,
+		"application/x-ndjson",
+		nil,
+	)
 	if err != nil {
 		log.Printf("error indexing floors %v: %s", floorIDs, err)
+		return
+	}
+	defer closeElasticResponse(res)
+	if elasticResponseIsError(res) {
+		log.Error().
+			Int("status", res.StatusCode).
+			Ints("floor_ids", floorIDs).
+			Msg("error indexing floors")
 		return
 	}
 	log.Info().Ints("floor_ids", floorIDs).Msg("index floors success")
@@ -576,12 +710,24 @@ func BulkDelete(floorIDs []int) {
 	}
 	log.Info().Ints("floor_ids", floorIDs).Msg("Preparing delete floors")
 
-	_, err := ES.Bulk().
-		Index(IndexName).
-		Raw(BulkBuffer).
-		Do(context.Background())
+	res, err := ES.request(
+		context.Background(),
+		http.MethodPost,
+		"/"+IndexName+"/_bulk",
+		BulkBuffer,
+		"application/x-ndjson",
+		nil,
+	)
 	if err != nil {
 		log.Printf("error deleting floors %v: %s", floorIDs, err)
+		return
+	}
+	defer closeElasticResponse(res)
+	if elasticResponseIsError(res) {
+		log.Error().
+			Int("status", res.StatusCode).
+			Ints("floor_ids", floorIDs).
+			Msg("error deleting floors")
 		return
 	}
 	log.Info().Ints("floor_ids", floorIDs).Msg("delete floors success")
@@ -594,15 +740,33 @@ func FloorIndex(floorModel FloorModel) {
 		return
 	}
 
-	_, err := ES.
-		Index(IndexName).
-		Id(strconv.Itoa(floorModel.ID)).
-		Document(&floorModel).
-		Refresh(refresh.Refresh{Name: "false"}).
-		Do(context.Background())
+	data, err := json.Marshal(floorModel)
+	if err != nil {
+		log.Err(err).Msg("error marshal floor")
+		return
+	}
+
+	params := url.Values{}
+	params.Set("refresh", "false")
+	res, err := ES.request(
+		context.Background(),
+		http.MethodPut,
+		"/"+IndexName+"/_doc/"+url.PathEscape(strconv.Itoa(floorModel.ID)),
+		bytes.NewReader(data),
+		"application/json",
+		params,
+	)
 
 	if err != nil {
 		log.Err(err).
+			Msg("error index floor")
+		return
+	}
+	defer closeElasticResponse(res)
+	if elasticResponseIsError(res) {
+		log.Error().
+			Int("status", res.StatusCode).
+			Int("floor_id", floorModel.ID).
 			Msg("error index floor")
 	} else {
 		log.Info().Int("floor_id", floorModel.ID).Msg("index floor success")
@@ -614,12 +778,25 @@ func FloorDelete(floorID int) {
 	if ES == nil {
 		return
 	}
-	_, err := ES.Delete(
-		IndexName,
-		strconv.Itoa(floorID)).Do(context.Background())
+	res, err := ES.request(
+		context.Background(),
+		http.MethodDelete,
+		"/"+IndexName+"/_doc/"+url.PathEscape(strconv.Itoa(floorID)),
+		nil,
+		"",
+		nil,
+	)
 
 	if err != nil {
 		log.Err(err).
+			Msg("error delete floor")
+		return
+	}
+	defer closeElasticResponse(res)
+	if elasticResponseIsError(res) {
+		log.Error().
+			Int("status", res.StatusCode).
+			Int("floor_id", floorID).
 			Msg("error delete floor")
 	} else {
 		log.Info().Int("floor_id", floorID).Msg("delete floor success")
