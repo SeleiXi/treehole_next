@@ -5,7 +5,10 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/rs/zerolog/log"
+	"treehole_next/config"
 	"treehole_next/models"
+	"treehole_next/recsys/modelrank"
 
 	"gorm.io/gorm"
 )
@@ -30,6 +33,7 @@ func rankCandidatesForSize(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Ti
 	}
 	feedback := loadUserFeedback(tx, c, holeIDs, now)
 	holeTags := loadCandidateTags(tx, holeIDs)
+	model := loadRecsysRankModel()
 
 	scored := make([]scoredHole, 0, len(holes))
 	softSuppressed := make([]scoredHole, 0)
@@ -38,7 +42,8 @@ func rankCandidatesForSize(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Ti
 			continue
 		}
 		tagIDs := holeTags[hole.ID]
-		score := scoreCandidate(hole, features[hole.ID], feedback, tagIDs, now)
+		ruleScore := scoreHole(hole, features[hole.ID], now) + feedback.affinityScore(hole, tagIDs) - feedback.penalty(hole.ID)
+		score := scoreCandidateWithModel(hole, features[hole.ID], feedback, tagIDs, now, ruleScore, model)
 		hole.SortScore = &score
 		item := scoredHole{hole: hole, score: score, tagIDs: tagIDs}
 		if feedback.shouldSuppress(hole.ID) {
@@ -57,6 +62,18 @@ func rankCandidatesForSize(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Ti
 		scored = append(scored, softSuppressed...)
 	}
 	return scored, nil
+}
+
+func loadRecsysRankModel() *modelrank.LinearModel {
+	if !config.Config.RecsysModelRanking {
+		return nil
+	}
+	model, err := modelrank.Load(config.Config.RecsysModelPath)
+	if err != nil {
+		log.Warn().Err(err).Str("path", config.Config.RecsysModelPath).Msg("could not load recsys rank model")
+		return nil
+	}
+	return model
 }
 
 func sortScored(scored []scoredHole) {

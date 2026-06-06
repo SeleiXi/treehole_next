@@ -24,6 +24,13 @@ func scoreCandidate(hole *models.Hole, feature *models.HoleFeature, feedback use
 	if model == nil {
 		return ruleScore
 	}
+	return scoreCandidateWithModel(hole, feature, feedback, tagIDs, now, ruleScore, model)
+}
+
+func scoreCandidateWithModel(hole *models.Hole, feature *models.HoleFeature, feedback userFeedback, tagIDs []int, now time.Time, ruleScore float64, model *modelrank.LinearModel) float64 {
+	if model == nil {
+		return ruleScore
+	}
 	return model.Score(candidateFeatures(hole, feature, feedback, tagIDs, now, ruleScore))
 }
 

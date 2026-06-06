@@ -24,6 +24,10 @@ func TestFeedbackOpenIsSoftFatigue(t *testing.T) {
 	assert.Positive(t, feedback.penalty(1))
 }
 
+func TestCurrentUserIDReturnsZeroForNilContext(t *testing.T) {
+	assert.Equal(t, 0, currentUserID(nil))
+}
+
 func TestFeedbackSuppressesExplicitAndRepeatedExposure(t *testing.T) {
 	feedback := userFeedback{
 		opened:      map[int]int{1: openSuppressionThreshold},

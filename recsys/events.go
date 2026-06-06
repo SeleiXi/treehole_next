@@ -14,6 +14,9 @@ import (
 )
 
 func currentUserID(c *fiber.Ctx) int {
+	if c == nil {
+		return 0
+	}
 	user, err := models.GetCurrLoginUser(c)
 	if err != nil || user == nil {
 		return 0

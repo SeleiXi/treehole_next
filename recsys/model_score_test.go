@@ -47,3 +47,35 @@ func TestScoreCandidateUsesConfiguredModel(t *testing.T) {
 
 	assert.InDelta(t, 1+2*1.386294361, score, 0.000001)
 }
+
+func TestRankCandidatesUsesConfiguredModel(t *testing.T) {
+	oldEnabled := config.Config.RecsysModelRanking
+	oldPath := config.Config.RecsysModelPath
+	t.Cleanup(func() {
+		config.Config.RecsysModelRanking = oldEnabled
+		config.Config.RecsysModelPath = oldPath
+	})
+
+	path := filepath.Join(t.TempDir(), "home-model.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{
+		"version": "test-home",
+		"weights": {
+			"reply_log": -5
+		}
+	}`), 0o644))
+	config.Config.RecsysModelRanking = true
+	config.Config.RecsysModelPath = path
+
+	db := newRankerTestDB(t)
+	now := time.Now()
+	require.NoError(t, db.Create(&[]models.Hole{
+		{ID: 1, Reply: 1, CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour), DivisionID: 1, UserID: 10},
+		{ID: 2, Reply: 20, CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour), DivisionID: 1, UserID: 11},
+	}).Error)
+
+	scored, err := rankCandidatesForSize(db, nil, []int{1, 2}, now, 2)
+
+	require.NoError(t, err)
+	require.Len(t, scored, 2)
+	assert.Equal(t, 1, scored[0].hole.ID)
+}
