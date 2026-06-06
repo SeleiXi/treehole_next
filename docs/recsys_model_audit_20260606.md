@@ -75,6 +75,8 @@ tests; do not deploy a model produced from weak data.
 Current implementation is a minimal, safe model-based loop:
 
 - real feedback tables are used for training;
+- home training samples include historical user division/tag affinity from
+  feedback before each exposure;
 - search impressions are privacy-preserving once deployed;
 - search actions are attributed by `request_id` without storing raw query text;
 - online inference is deterministic and has config-gated fallback;

@@ -64,13 +64,48 @@ func TestTrainingQueriesGateLooseFallbackToLegacyEmptyRequestID(t *testing.T) {
 	assert.Contains(t, searchSQL, "AND se.request_id <> ''")
 	assert.Contains(t, searchSQL, "AND se.request_id = ''")
 
-	homeSQL := homeSamplesSQL()
-	assert.Contains(t, homeSQL, "fa.request_id = fe.request_id")
-	assert.Contains(t, homeSQL, "AND fe.request_id <> ''")
-	assert.Contains(t, homeSQL, "AND fe.request_id = ''")
-
 	assert.GreaterOrEqual(t, strings.Count(searchSQL, "request_id = ''"), 1)
-	assert.GreaterOrEqual(t, strings.Count(homeSQL, "request_id = ''"), 1)
+}
+
+func TestApplyHomeFeedbackGatesLooseFallbackToLegacyEmptyRequestID(t *testing.T) {
+	sampleAt := time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
+	rows := []homeRow{
+		{
+			UserID:    42,
+			HoleID:    1,
+			RequestID: "request-1",
+			SampleAt:  sampleAt,
+		},
+		{
+			UserID:   42,
+			HoleID:   1,
+			SampleAt: sampleAt,
+		},
+	}
+	events := []homeFeedbackEvent{
+		{
+			UserID:    42,
+			HoleID:    1,
+			EventType: "open",
+			RequestID: "other-request",
+			CreatedAt: sampleAt.Add(time.Minute),
+		},
+	}
+
+	applyHomeFeedback(rows, events)
+
+	assert.Equal(t, 0.0, rows[0].Label)
+	assert.Equal(t, 0.55, rows[1].Label)
+}
+
+func TestHomeTrainingQuerySelectsHoleIDForAffinityEnrichment(t *testing.T) {
+	homeSQL := homeSamplesSQL()
+
+	assert.Contains(t, homeSQL, "fe.hole_id")
+	assert.Contains(t, homeSQL, "0 AS label")
+	assert.Contains(t, homeSQL, "0 AS tag_count")
+	assert.Contains(t, homeSQL, "0 AS open_count")
+	assert.Contains(t, homeSQL, "0 AS impression_count")
 }
 
 func TestSearchFeaturesIgnoreFutureFeatureSnapshot(t *testing.T) {
@@ -147,6 +182,137 @@ func TestHomeFeaturesExposeFeedbackPenaltyAndFallbackScore(t *testing.T) {
 	penalty := 2*2.25 + 3*1.75
 	assert.Equal(t, penalty, features["feedback_penalty"])
 	assert.Equal(t, features["rule_score"]-penalty, features["fallback_score"])
+}
+
+func TestHomeFeaturesExposeHistoricalAffinities(t *testing.T) {
+	sampleAt := time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
+
+	features := homeFeatures(homeRow{
+		SampleAt:         sampleAt,
+		Reply:            3,
+		View:             5,
+		DivisionAffinity: 3.0,
+		TagAffinity:      2.5,
+		HoleCreatedAt:    sampleAt.Add(-time.Hour),
+		HoleUpdatedAt:    sampleAt.Add(-time.Hour),
+	})
+
+	assert.Equal(t, 3.0, features["division_affinity"])
+	assert.Equal(t, 2.5, features["tag_affinity"])
+	assert.Equal(t, features["rule_score"]+5.5, features["fallback_score"])
+
+	capped := homeFeatures(homeRow{
+		SampleAt:         sampleAt,
+		DivisionAffinity: 10,
+		TagAffinity:      5,
+		HoleCreatedAt:    sampleAt.Add(-time.Hour),
+		HoleUpdatedAt:    sampleAt.Add(-time.Hour),
+	})
+	assert.Equal(t, capped["rule_score"]+8, capped["fallback_score"])
+}
+
+func TestApplyHomeFeedbackBuildsLabelsAndPriorCounts(t *testing.T) {
+	sampleAt := time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
+	rows := []homeRow{{
+		UserID:    42,
+		HoleID:    1,
+		RequestID: "request-1",
+		SampleAt:  sampleAt,
+	}}
+	events := []homeFeedbackEvent{
+		{
+			UserID:    42,
+			HoleID:    1,
+			EventType: "impression",
+			CreatedAt: sampleAt.Add(-time.Hour),
+		},
+		{
+			UserID:    42,
+			HoleID:    1,
+			EventType: "open",
+			CreatedAt: sampleAt.Add(-30 * time.Minute),
+		},
+		{
+			UserID:    42,
+			HoleID:    1,
+			EventType: "favorite",
+			RequestID: "request-1",
+			CreatedAt: sampleAt.Add(time.Minute),
+		},
+		{
+			UserID:    42,
+			HoleID:    1,
+			EventType: "click",
+			RequestID: "request-1",
+			CreatedAt: sampleAt.Add(3 * time.Hour),
+		},
+	}
+
+	applyHomeFeedback(rows, events)
+
+	assert.Equal(t, 1.0, rows[0].Label)
+	assert.Equal(t, 1, rows[0].OpenCount)
+	assert.Equal(t, 1, rows[0].ImpressionCount)
+}
+
+func TestApplyHomeAffinitiesUsesPriorUserHistory(t *testing.T) {
+	sampleAt := time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
+	rows := []homeRow{{
+		UserID:     42,
+		HoleID:     1,
+		DivisionID: 7,
+		SampleAt:   sampleAt,
+	}}
+	events := []homeAffinityEvent{
+		{
+			UserID:     42,
+			HoleID:     2,
+			EventType:  "favorite",
+			DivisionID: 7,
+			CreatedAt:  sampleAt.Add(-time.Hour),
+		},
+		{
+			UserID:     42,
+			HoleID:     3,
+			EventType:  "reply",
+			DivisionID: 9,
+			CreatedAt:  sampleAt.Add(-2 * time.Hour),
+		},
+		{
+			UserID:     42,
+			HoleID:     4,
+			EventType:  "open",
+			DivisionID: 7,
+			CreatedAt:  sampleAt.Add(time.Minute),
+		},
+		{
+			UserID:     42,
+			HoleID:     5,
+			EventType:  "subscribe",
+			DivisionID: 7,
+			CreatedAt:  sampleAt.Add(-91 * 24 * time.Hour),
+		},
+		{
+			UserID:     99,
+			HoleID:     6,
+			EventType:  "favorite",
+			DivisionID: 7,
+			CreatedAt:  sampleAt.Add(-time.Hour),
+		},
+	}
+	tags := map[int][]int{
+		1: {10, 20},
+		2: {10, 30},
+		3: {20},
+		4: {10},
+		5: {10},
+		6: {10},
+	}
+
+	applyHomeAffinities(rows, events, tags)
+
+	assert.InDelta(t, 1.2, rows[0].DivisionAffinity, 0.000001)
+	assert.InDelta(t, 1.54, rows[0].TagAffinity, 0.000001)
 }
 
 func TestHomeGroupUsesRequestOrMinuteBucket(t *testing.T) {

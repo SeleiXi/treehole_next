@@ -26,6 +26,8 @@ type sample struct {
 }
 
 const trainingFeatureMaxAge = 15 * time.Minute
+const homeAffinityLookback = 90 * 24 * time.Hour
+const homeAffinityEventLimit = 300
 
 type trainingDataGate struct {
 	minSamples   int
@@ -392,6 +394,7 @@ func searchFeatures(row searchRow) map[string]float64 {
 type homeRow struct {
 	Label             float64
 	UserID            int
+	HoleID            int
 	RequestID         string
 	Reply             int
 	View              int
@@ -406,6 +409,8 @@ type homeRow struct {
 	TagCount          int
 	OpenCount         int
 	ImpressionCount   int
+	DivisionAffinity  float64
+	TagAffinity       float64
 	FeatureUpdatedAt  *time.Time
 	HotScore          *float64
 	QualityScore      *float64
@@ -424,6 +429,12 @@ func loadHomeSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := enrichHomeFeedback(db, rows); err != nil {
+		return nil, err
+	}
+	if err := enrichHomeAffinities(db, rows); err != nil {
+		return nil, err
+	}
 	samples := make([]sample, 0, len(rows))
 	for _, row := range rows {
 		samples = append(samples, sample{
@@ -439,42 +450,9 @@ func loadHomeSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 func homeSamplesSQL() string {
 	return `
 		SELECT
-			COALESCE(
-			(
-				SELECT MAX(CASE
-					WHEN fa.event_type IN ('favorite', 'subscribe') THEN 1.0
-					WHEN fa.event_type = 'reply' THEN 0.9
-					WHEN fa.event_type IN ('open', 'click') THEN 0.7
-					WHEN fa.event_type IN ('hide', 'report') THEN 0.0
-					ELSE NULL
-				END)
-				FROM feed_event fa
-				WHERE fa.user_id = fe.user_id
-					AND fa.hole_id = fe.hole_id
-					AND fa.request_id = fe.request_id
-					AND fe.request_id <> ''
-					AND fa.event_type IN ('open', 'click', 'reply', 'favorite', 'subscribe', 'hide', 'report')
-					AND fa.created_at >= fe.created_at
-					AND fa.created_at < DATE_ADD(fe.created_at, INTERVAL 2 HOUR)
-			),
-			(
-				SELECT MAX(CASE
-					WHEN fa.event_type IN ('favorite', 'subscribe') AND fa.created_at < DATE_ADD(fe.created_at, INTERVAL 30 MINUTE) THEN 0.85
-					WHEN fa.event_type = 'reply' AND fa.created_at < DATE_ADD(fe.created_at, INTERVAL 30 MINUTE) THEN 0.75
-					WHEN fa.event_type IN ('open', 'click') AND fa.created_at < DATE_ADD(fe.created_at, INTERVAL 30 MINUTE) THEN 0.55
-					WHEN fa.event_type IN ('hide', 'report') THEN 0.0
-					ELSE NULL
-				END)
-				FROM feed_event fa
-				WHERE fa.user_id = fe.user_id
-					AND fa.hole_id = fe.hole_id
-					AND fa.event_type IN ('open', 'click', 'reply', 'favorite', 'subscribe', 'hide', 'report')
-					AND fe.request_id = ''
-					AND fa.created_at >= fe.created_at
-					AND fa.created_at < DATE_ADD(fe.created_at, INTERVAL 2 HOUR)
-			),
-			0) AS label,
+			0 AS label,
 			fe.user_id,
+			fe.hole_id,
 			fe.request_id,
 			h.reply,
 			h.view,
@@ -486,25 +464,9 @@ func homeSamplesSQL() string {
 			h.subscription_count,
 			h.created_at AS hole_created_at,
 			h.updated_at AS hole_updated_at,
-			COALESCE(tc.tag_count, 0) AS tag_count,
-			(
-				SELECT COUNT(*)
-				FROM feed_event fh
-				WHERE fh.user_id = fe.user_id
-					AND fh.hole_id = fe.hole_id
-					AND fh.event_type IN ('open', 'click')
-					AND fh.created_at < fe.created_at
-					AND fh.created_at >= DATE_SUB(fe.created_at, INTERVAL 7 DAY)
-			) AS open_count,
-			(
-				SELECT COUNT(*)
-				FROM feed_event fh
-				WHERE fh.user_id = fe.user_id
-					AND fh.hole_id = fe.hole_id
-					AND fh.event_type = 'impression'
-					AND fh.created_at < fe.created_at
-					AND fh.created_at >= DATE_SUB(fe.created_at, INTERVAL 7 DAY)
-			) AS impression_count,
+			0 AS tag_count,
+			0 AS open_count,
+			0 AS impression_count,
 			hf.updated_at AS feature_updated_at,
 			hf.hot_score,
 			hf.quality_score,
@@ -515,12 +477,9 @@ func homeSamplesSQL() string {
 			hf.view1h,
 			hf.view24h,
 			fe.created_at AS sample_at
-		FROM feed_event fe
+		FROM feed_event fe FORCE INDEX (idx_feed_event_type_created_hole)
 		JOIN hole h ON h.id = fe.hole_id
 		LEFT JOIN hole_feature hf ON hf.hole_id = fe.hole_id
-		LEFT JOIN (
-			SELECT hole_id, COUNT(*) AS tag_count FROM hole_tags GROUP BY hole_id
-		) tc ON tc.hole_id = fe.hole_id
 		WHERE fe.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
 			AND fe.event_type = 'impression'
 		ORDER BY fe.created_at DESC
@@ -536,6 +495,316 @@ func homeGroup(row homeRow) string {
 		return fmt.Sprintf("user:%d:%s", row.UserID, row.SampleAt.Format("200601021504"))
 	}
 	return fmt.Sprintf("user:%d", row.UserID)
+}
+
+type homeAffinityEvent struct {
+	UserID     int
+	HoleID     int
+	EventType  string
+	DivisionID int
+	CreatedAt  time.Time
+}
+
+type homeFeedbackEvent struct {
+	UserID    int
+	HoleID    int
+	EventType string
+	RequestID string
+	CreatedAt time.Time
+}
+
+func enrichHomeFeedback(db *gorm.DB, rows []homeRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	userIDs := map[int]bool{}
+	holeIDs := map[int]bool{}
+	var minSampleAt time.Time
+	var maxSampleAt time.Time
+	for _, row := range rows {
+		if row.UserID != 0 {
+			userIDs[row.UserID] = true
+		}
+		if row.HoleID != 0 {
+			holeIDs[row.HoleID] = true
+		}
+		if row.SampleAt.IsZero() {
+			continue
+		}
+		if minSampleAt.IsZero() || row.SampleAt.Before(minSampleAt) {
+			minSampleAt = row.SampleAt
+		}
+		if maxSampleAt.IsZero() || row.SampleAt.After(maxSampleAt) {
+			maxSampleAt = row.SampleAt
+		}
+	}
+	if len(userIDs) == 0 || len(holeIDs) == 0 || minSampleAt.IsZero() || maxSampleAt.IsZero() {
+		return nil
+	}
+
+	var events []homeFeedbackEvent
+	if err := db.Table("feed_event FORCE INDEX (idx_feed_event_user_hole_type_created)").
+		Select("user_id, hole_id, event_type, request_id, created_at").
+		Where("user_id IN ?", boolMapIntKeys(userIDs)).
+		Where("hole_id IN ?", boolMapIntKeys(holeIDs)).
+		Where("event_type IN ?", homeFeedbackEventTypes()).
+		Where("created_at >= ?", minSampleAt.Add(-7*24*time.Hour)).
+		Where("created_at < ?", maxSampleAt.Add(2*time.Hour)).
+		Order("user_id ASC, hole_id ASC, created_at ASC").
+		Find(&events).Error; err != nil {
+		return err
+	}
+	applyHomeFeedback(rows, events)
+	return nil
+}
+
+func applyHomeFeedback(rows []homeRow, events []homeFeedbackEvent) {
+	eventsByUserHole := map[string][]homeFeedbackEvent{}
+	for _, event := range events {
+		key := homeUserHoleKey(event.UserID, event.HoleID)
+		eventsByUserHole[key] = append(eventsByUserHole[key], event)
+	}
+	for key := range eventsByUserHole {
+		sort.SliceStable(eventsByUserHole[key], func(i, j int) bool {
+			return eventsByUserHole[key][i].CreatedAt.Before(eventsByUserHole[key][j].CreatedAt)
+		})
+	}
+
+	for i := range rows {
+		row := &rows[i]
+		if row.SampleAt.IsZero() {
+			continue
+		}
+		events := eventsByUserHole[homeUserHoleKey(row.UserID, row.HoleID)]
+		priorStart := row.SampleAt.Add(-7 * 24 * time.Hour)
+		labelEnd := row.SampleAt.Add(2 * time.Hour)
+		legacyPositiveEnd := row.SampleAt.Add(30 * time.Minute)
+		for _, event := range events {
+			if event.CreatedAt.Before(priorStart) {
+				continue
+			}
+			if event.CreatedAt.Before(row.SampleAt) {
+				switch event.EventType {
+				case "open", "click":
+					row.OpenCount++
+				case "impression":
+					row.ImpressionCount++
+				}
+				continue
+			}
+			if !event.CreatedAt.Before(labelEnd) {
+				break
+			}
+			if row.RequestID != "" {
+				if event.RequestID == row.RequestID {
+					row.Label = math.Max(row.Label, exactHomeLabelWeight(event.EventType))
+				}
+				continue
+			}
+			row.Label = math.Max(row.Label, legacyHomeLabelWeight(event.EventType, event.CreatedAt, legacyPositiveEnd))
+		}
+	}
+}
+
+func homeFeedbackEventTypes() []string {
+	return []string{"impression", "open", "click", "reply", "favorite", "subscribe", "hide", "report"}
+}
+
+func exactHomeLabelWeight(eventType string) float64 {
+	switch eventType {
+	case "favorite", "subscribe":
+		return 1.0
+	case "reply":
+		return 0.9
+	case "open", "click":
+		return 0.7
+	default:
+		return 0
+	}
+}
+
+func legacyHomeLabelWeight(eventType string, eventAt time.Time, positiveEnd time.Time) float64 {
+	switch eventType {
+	case "favorite", "subscribe":
+		if eventAt.Before(positiveEnd) {
+			return 0.85
+		}
+	case "reply":
+		if eventAt.Before(positiveEnd) {
+			return 0.75
+		}
+	case "open", "click":
+		if eventAt.Before(positiveEnd) {
+			return 0.55
+		}
+	}
+	return 0
+}
+
+func homeUserHoleKey(userID int, holeID int) string {
+	return fmt.Sprintf("%d:%d", userID, holeID)
+}
+
+func enrichHomeAffinities(db *gorm.DB, rows []homeRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	userIDs := map[int]bool{}
+	holeIDs := map[int]bool{}
+	var minSampleAt time.Time
+	var maxSampleAt time.Time
+	for _, row := range rows {
+		if row.UserID != 0 {
+			userIDs[row.UserID] = true
+		}
+		if row.HoleID != 0 {
+			holeIDs[row.HoleID] = true
+		}
+		if row.SampleAt.IsZero() {
+			continue
+		}
+		if minSampleAt.IsZero() || row.SampleAt.Before(minSampleAt) {
+			minSampleAt = row.SampleAt
+		}
+		if maxSampleAt.IsZero() || row.SampleAt.After(maxSampleAt) {
+			maxSampleAt = row.SampleAt
+		}
+	}
+	if len(userIDs) == 0 || minSampleAt.IsZero() || maxSampleAt.IsZero() {
+		return nil
+	}
+
+	var events []homeAffinityEvent
+	if err := db.Table("feed_event FORCE INDEX (idx_feed_event_user_type_created_hole)").
+		Select("feed_event.user_id, feed_event.hole_id, feed_event.event_type, hole.division_id, feed_event.created_at").
+		Joins("JOIN hole ON hole.id = feed_event.hole_id").
+		Where("feed_event.user_id IN ?", boolMapIntKeys(userIDs)).
+		Where("feed_event.event_type IN ?", homeAffinityEventTypes()).
+		Where("feed_event.created_at >= ?", minSampleAt.Add(-homeAffinityLookback)).
+		Where("feed_event.created_at < ?", maxSampleAt).
+		Order("feed_event.user_id ASC, feed_event.created_at DESC").
+		Find(&events).Error; err != nil {
+		return err
+	}
+	for _, event := range events {
+		if event.HoleID != 0 {
+			holeIDs[event.HoleID] = true
+		}
+	}
+
+	tags, err := loadHomeAffinityTags(db, boolMapIntKeys(holeIDs))
+	if err != nil {
+		return err
+	}
+	for i := range rows {
+		rows[i].TagCount = len(tags[rows[i].HoleID])
+	}
+	applyHomeAffinities(rows, events, tags)
+	return nil
+}
+
+func loadHomeAffinityTags(db *gorm.DB, holeIDs []int) (map[int][]int, error) {
+	result := map[int][]int{}
+	if len(holeIDs) == 0 {
+		return result, nil
+	}
+	type tagRow struct {
+		HoleID int
+		TagID  int
+	}
+	var rows []tagRow
+	if err := db.Table("hole_tags").
+		Select("hole_id, tag_id").
+		Where("hole_id IN ?", holeIDs).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		result[row.HoleID] = append(result[row.HoleID], row.TagID)
+	}
+	return result, nil
+}
+
+func applyHomeAffinities(rows []homeRow, events []homeAffinityEvent, tags map[int][]int) {
+	eventsByUser := map[int][]homeAffinityEvent{}
+	for _, event := range events {
+		eventsByUser[event.UserID] = append(eventsByUser[event.UserID], event)
+	}
+	for userID := range eventsByUser {
+		sort.SliceStable(eventsByUser[userID], func(i, j int) bool {
+			return eventsByUser[userID][i].CreatedAt.After(eventsByUser[userID][j].CreatedAt)
+		})
+	}
+
+	for i := range rows {
+		row := &rows[i]
+		if row.SampleAt.IsZero() {
+			continue
+		}
+		candidateTags := intSet(tags[row.HoleID])
+		lowerBound := row.SampleAt.Add(-homeAffinityLookback)
+		used := 0
+		for _, event := range eventsByUser[row.UserID] {
+			if !event.CreatedAt.Before(row.SampleAt) {
+				continue
+			}
+			if event.CreatedAt.Before(lowerBound) {
+				break
+			}
+			weight := homeAffinityEventWeight(event.EventType)
+			if weight <= 0 {
+				continue
+			}
+			used++
+			if event.DivisionID == row.DivisionID {
+				row.DivisionAffinity += weight
+			}
+			if len(candidateTags) != 0 {
+				for _, tagID := range tags[event.HoleID] {
+					if candidateTags[tagID] {
+						row.TagAffinity += weight * 0.7
+					}
+				}
+			}
+			if used >= homeAffinityEventLimit {
+				break
+			}
+		}
+	}
+}
+
+func homeAffinityEventTypes() []string {
+	return []string{"open", "click", "reply", "favorite", "subscribe"}
+}
+
+func homeAffinityEventWeight(eventType string) float64 {
+	switch eventType {
+	case "favorite", "subscribe":
+		return 1.2
+	case "reply":
+		return 1.0
+	case "open", "click":
+		return 0.35
+	default:
+		return 0
+	}
+}
+
+func intSet(values []int) map[int]bool {
+	result := make(map[int]bool, len(values))
+	for _, value := range values {
+		result[value] = true
+	}
+	return result
+}
+
+func boolMapIntKeys(values map[int]bool) []int {
+	keys := make([]int, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Ints(keys)
+	return keys
 }
 
 func homeFeatures(row homeRow) map[string]float64 {
@@ -571,7 +840,7 @@ func homeFeatures(row homeRow) map[string]float64 {
 		ruleScore -= 1.0
 	}
 	feedbackPenalty := float64(row.OpenCount)*2.25 + float64(row.ImpressionCount)*1.75
-	fallbackScore := ruleScore - feedbackPenalty
+	fallbackScore := ruleScore + cappedAffinityScore(row.DivisionAffinity, row.TagAffinity) - feedbackPenalty
 
 	features := map[string]float64{
 		"rule_score":                ruleScore,
@@ -588,8 +857,8 @@ func homeFeatures(row homeRow) map[string]float64 {
 		"feedback_open_count":       float64(row.OpenCount),
 		"feedback_impression_count": float64(row.ImpressionCount),
 		"feedback_penalty":          feedbackPenalty,
-		"division_affinity":         0,
-		"tag_affinity":              0,
+		"division_affinity":         row.DivisionAffinity,
+		"tag_affinity":              row.TagAffinity,
 		"tag_count":                 float64(row.TagCount),
 	}
 	if row.Good {
@@ -625,6 +894,14 @@ func homeFeatures(row homeRow) map[string]float64 {
 		}
 	}
 	return features
+}
+
+func cappedAffinityScore(divisionAffinity float64, tagAffinity float64) float64 {
+	score := divisionAffinity + tagAffinity
+	if score > 8 {
+		return 8
+	}
+	return score
 }
 
 func train(samples []sample, epochs int, lr float64, l2 float64) modelrank.LinearModel {

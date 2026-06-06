@@ -56,7 +56,9 @@ The trainer builds pointwise logistic samples from real feedback:
   search impression.
 - `home`: `feed_event` impressions/opens/replies/favorites/subscriptions become
   user-hole training rows, joined with `hole`, `hole_feature`, tags, and division
-  metadata.
+  metadata. Home samples also include exposure-time user affinity features built
+  from that user's prior positive feedback to the same division and overlapping
+  tags.
 
 The JSON model is intentionally simple: an intercept plus feature weights. This
 keeps online inference deterministic, cheap, and easy to roll back while leaving
