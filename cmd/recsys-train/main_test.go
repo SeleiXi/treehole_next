@@ -215,3 +215,39 @@ func TestValidateTrainingDataAllowsHealthyOrExplicitWeakData(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+func TestValidateSplitLabelDiversityRejectsOneSidedTrainOrEval(t *testing.T) {
+	healthyTrain := []sample{
+		{label: 1, group: "q1"},
+		{label: 0, group: "q1"},
+	}
+	healthyEval := []sample{
+		{label: 1, group: "q2"},
+		{label: 0, group: "q2"},
+	}
+
+	err := validateSplitLabelDiversity([]sample{
+		{label: 0, group: "q1"},
+		{label: 0, group: "q1"},
+	}, healthyEval, false)
+	assert.ErrorContains(t, err, "train label diversity")
+
+	err = validateSplitLabelDiversity(healthyTrain, []sample{
+		{label: 1, group: "q2"},
+		{label: 1, group: "q2"},
+	}, false)
+	assert.ErrorContains(t, err, "eval label diversity")
+
+	require.NoError(t, validateSplitLabelDiversity(healthyTrain, healthyEval, false))
+	require.NoError(t, validateSplitLabelDiversity(healthyTrain, nil, false))
+}
+
+func TestValidateSplitLabelDiversityAllowsExplicitWeakData(t *testing.T) {
+	err := validateSplitLabelDiversity([]sample{
+		{label: 0, group: "q1"},
+	}, []sample{
+		{label: 1, group: "q2"},
+	}, true)
+
+	require.NoError(t, err)
+}

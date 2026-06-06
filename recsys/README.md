@@ -65,4 +65,6 @@ cross-encoder reranker later. The trainer uses an older-to-newer time split,
 stores feature normalization stats in `feature_stats`, and reports train/eval
 logloss, AUC, and NDCG@10 against the existing baseline ranker. Use
 `-metrics-out /path/metrics.json` to persist the evaluation summary alongside the
-model artifact.
+model artifact. By default, the trainer refuses to write a model when either the
+training split or non-empty evaluation split has only positive or only negative
+labels; use `-allow-weak-data` only for shadow smoke tests.

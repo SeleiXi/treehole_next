@@ -95,6 +95,9 @@ func main() {
 	if len(trainSamples) == 0 {
 		fatal(errors.New("no training samples after time split"))
 	}
+	if err := validateSplitLabelDiversity(trainSamples, evalSamples, *allowWeak); err != nil {
+		fatal(err)
+	}
 
 	model := train(trainSamples, *epochs, *lr, *l2)
 	model.Task = *task
@@ -985,6 +988,27 @@ func validateTrainingData(samples []sample, gate trainingDataGate) error {
 	groups := distinctGroups(samples)
 	if groups < gate.minGroups {
 		return fmt.Errorf("insufficient training data: groups=%d min_groups=%d", groups, gate.minGroups)
+	}
+	return nil
+}
+
+func validateSplitLabelDiversity(trainSamples []sample, evalSamples []sample, allowWeak bool) error {
+	if allowWeak {
+		return nil
+	}
+	if err := validateLabelDiversity("train", trainSamples); err != nil {
+		return err
+	}
+	if len(evalSamples) != 0 {
+		return validateLabelDiversity("eval", evalSamples)
+	}
+	return nil
+}
+
+func validateLabelDiversity(scope string, samples []sample) error {
+	pos, neg := labelStats(samples)
+	if pos == 0 || neg == 0 {
+		return fmt.Errorf("insufficient %s label diversity: positives=%d negatives=%d", scope, pos, neg)
 	}
 	return nil
 }

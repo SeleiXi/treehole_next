@@ -65,9 +65,10 @@ eval NDCG@10 has no useful discrimination. The generated model artifact proves
 that the trainer can consume real production feedback, but it is not reliable
 enough to enable online model ranking.
 
-Current trainer defaults now reject datasets that are too small, one-sided, or
-too concentrated in a few query/session/user groups. Use `-allow-weak-data`
-only for pipeline smoke tests; do not deploy a model produced from weak data.
+Current trainer defaults now reject datasets that are too small, one-sided, too
+concentrated in a few query/session/user groups, or one-sided after the
+older-to-newer train/eval split. Use `-allow-weak-data` only for pipeline smoke
+tests; do not deploy a model produced from weak data.
 
 ## Judgment Against Mature Practice
 
@@ -83,7 +84,8 @@ It is not yet mature enough to turn on model ranking in production:
 
 - search LTR has no real `search_event` impressions yet;
 - feedback volume is too small and heavily skewed toward impressions;
-- eval splits can lack negative examples;
+- eval splits can be too small or temporally skewed until more feedback is
+  collected;
 - no counterfactual logging or exploration bucket exists;
 - no online canary metrics compare model rank against rule rank;
 - no embedding recall, two-tower retrieval, GBDT, or cross-encoder path has been
