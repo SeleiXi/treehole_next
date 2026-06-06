@@ -276,62 +276,18 @@ func (holes Holes) Preprocess(c *fiber.Ctx) error {
 		}
 	}
 
+	err := holes.updateAISummaryAvailability(c)
+	if err != nil {
+		return err
+	}
+
 	// preprocess floors after load from hole cache
 	floors := make(Floors, 0)
 	for _, hole := range holes {
 		hole.SetHoleFloor()
 		floors = append(floors, hole.Floors...)
-		// set ai_summary_available
-		uid, _ := GetCurrUserID(c)
-
-		// for users in whitelist or whitelist is empty, AISummaryAvailable is true,
-		hole.AISummaryAvailable = config.Config.WhiteListUserIds == nil || slices.Contains(config.Config.WhiteListUserIds, uid)
-		if !hole.AISummaryAvailable {
-			h := fnv.New32a()
-			h.Write([]byte(strconv.Itoa(uid)))
-			if int(h.Sum32())%100 < int(100*config.Config.WhiteListRate) {
-				hole.AISummaryAvailable = true
-			}
-		}
-		hole.AISummaryAvailable = hole.AISummaryAvailable && !(hole.Locked || hole.Hidden || hole.Frozen)
-		for _, tag := range hole.Tags {
-			if len(tag.Name) > 0 && tag.Name[0] == '*' {
-				hole.AISummaryAvailable = false
-				break
-			}
-		}
-		if hole.AISummaryAvailable {
-			err := DB.Transaction(func(tx *gorm.DB) error {
-				query := tx.Model(&Floor{}).Where("hole_id = ?", hole.ID)
-				var contentSum int64
-				var sensitiveCount int64
-
-				contentSumQuery := "SUM(CHAR_LENGTH(content))"
-				if DB.Dialector.Name() == "sqlite" {
-					contentSumQuery = "SUM(LENGTH(content))"
-				}
-
-				err := query.Select(fmt.Sprintf("COALESCE(%s, 0)", contentSumQuery)).Scan(&contentSum).Error
-				if err != nil {
-					return err
-				}
-
-				hole.AISummaryAvailable = hole.Reply > config.Config.SummaryFloorLimit || contentSum >= config.Config.SummaryContentLimit // || utils.GetCache("AISummary"+strconv.Itoa(hole.ID), &discard)
-
-				if hole.AISummaryAvailable {
-					query.Where("is_sensitive = ? AND is_actual_sensitive IS NULL", true).Count(&sensitiveCount)
-					if sensitiveCount > 0 {
-						hole.AISummaryAvailable = false
-					}
-				}
-				return nil
-			})
-			if err != nil {
-				return err
-			}
-		}
 	}
-	err := floors.Preprocess(c)
+	err = floors.Preprocess(c)
 	if err != nil {
 		return err
 	}
@@ -362,6 +318,79 @@ func (holes Holes) Preprocess(c *fiber.Ctx) error {
 	//	}
 	//}
 
+	return nil
+}
+
+type holeSummaryStats struct {
+	HoleID         int
+	ContentSum     int64
+	SensitiveCount int64
+}
+
+func (holes Holes) updateAISummaryAvailability(c *fiber.Ctx) error {
+	if len(holes) == 0 {
+		return nil
+	}
+
+	uid, _ := GetCurrUserID(c)
+	candidates := make(Holes, 0, len(holes))
+	candidateIDs := make([]int, 0, len(holes))
+	for _, hole := range holes {
+		if hole == nil {
+			continue
+		}
+		hole.AISummaryAvailable = config.Config.WhiteListUserIds == nil || slices.Contains(config.Config.WhiteListUserIds, uid)
+		if !hole.AISummaryAvailable {
+			h := fnv.New32a()
+			h.Write([]byte(strconv.Itoa(uid)))
+			if int(h.Sum32())%100 < int(100*config.Config.WhiteListRate) {
+				hole.AISummaryAvailable = true
+			}
+		}
+		hole.AISummaryAvailable = hole.AISummaryAvailable && !(hole.Locked || hole.Hidden || hole.Frozen)
+		for _, tag := range hole.Tags {
+			if len(tag.Name) > 0 && tag.Name[0] == '*' {
+				hole.AISummaryAvailable = false
+				break
+			}
+		}
+		if hole.AISummaryAvailable {
+			candidates = append(candidates, hole)
+			candidateIDs = append(candidateIDs, hole.ID)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	contentSumQuery := "SUM(CHAR_LENGTH(content))"
+	if DB.Dialector.Name() == "sqlite" {
+		contentSumQuery = "SUM(LENGTH(content))"
+	}
+	var rows []holeSummaryStats
+	err := DB.Model(&Floor{}).
+		Select(
+			fmt.Sprintf("hole_id, COALESCE(%s, 0) AS content_sum, SUM(CASE WHEN is_sensitive = ? AND is_actual_sensitive IS NULL THEN 1 ELSE 0 END) AS sensitive_count", contentSumQuery),
+			true,
+		).
+		Where("hole_id IN ?", candidateIDs).
+		Group("hole_id").
+		Scan(&rows).Error
+	if err != nil {
+		return err
+	}
+	statsByHole := make(map[int]holeSummaryStats, len(rows))
+	for _, row := range rows {
+		statsByHole[row.HoleID] = row
+	}
+
+	for _, hole := range candidates {
+		stats := statsByHole[hole.ID]
+		hole.AISummaryAvailable = hole.Reply > config.Config.SummaryFloorLimit || stats.ContentSum >= config.Config.SummaryContentLimit
+		if hole.AISummaryAvailable && stats.SensitiveCount > 0 {
+			hole.AISummaryAvailable = false
+		}
+	}
 	return nil
 }
 
