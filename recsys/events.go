@@ -10,11 +10,15 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"treehole_next/config"
 	"treehole_next/models"
 )
 
 func currentUserID(c *fiber.Ctx) int {
 	if c == nil {
+		if config.Config.Mode == "dev" || config.Config.Mode == "test" {
+			return 1
+		}
 		return 0
 	}
 	user, err := models.GetCurrLoginUser(c)

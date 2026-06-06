@@ -18,7 +18,8 @@ import (
 )
 
 const searchActionLookback = 2 * time.Hour
-const searchEventWriteTimeout = 2 * time.Second
+const searchEventActionTimeout = 2 * time.Second
+const searchEventImpressionWriteTimeout = 10 * time.Second
 
 type SearchResultLogItem struct {
 	FloorID   int
@@ -101,16 +102,16 @@ func LogSearchImpressions(tx *gorm.DB, c *fiber.Ctx, keyword string, accurate bo
 	if len(events) == 0 {
 		return
 	}
-	write := func() {
-		if err := writeSearchEvents(tx, events); err != nil {
+	write := func(timeout time.Duration) {
+		if err := writeSearchEvents(tx, events, timeout); err != nil {
 			log.Warn().Err(err).Str("request_id", requestID).Msg("could not write search impressions")
 		}
 	}
 	if config.Config.Mode == "production" && tx == DB {
-		go write()
+		go write(searchEventImpressionWriteTimeout)
 		return
 	}
-	write()
+	write(searchEventActionTimeout)
 }
 
 func LogSearchAction(tx *gorm.DB, userID int, holeID int, eventType string, requestID string) {
@@ -126,7 +127,7 @@ func LogSearchAction(tx *gorm.DB, userID int, holeID int, eventType string, requ
 	}
 
 	now := time.Now()
-	queryTx, cancel := searchEventTimeoutTx(tx)
+	queryTx, cancel := searchEventTimeoutTx(tx, searchEventActionTimeout)
 	defer cancel()
 
 	var impressions []SearchEvent
@@ -173,22 +174,22 @@ func LogSearchAction(tx *gorm.DB, userID int, holeID int, eventType string, requ
 	if len(events) == 0 {
 		return
 	}
-	if err := writeSearchEvents(tx, events); err != nil {
+	if err := writeSearchEvents(tx, events, searchEventActionTimeout); err != nil {
 		log.Warn().Err(err).Str("request_id", requestID).Int("hole_id", holeID).Str("event_type", eventType).Msg("could not write search action")
 	}
 }
 
-func writeSearchEvents(tx *gorm.DB, events []SearchEvent) error {
+func writeSearchEvents(tx *gorm.DB, events []SearchEvent, timeout time.Duration) error {
 	if len(events) == 0 {
 		return nil
 	}
-	writeTx, cancel := searchEventTimeoutTx(tx)
+	writeTx, cancel := searchEventTimeoutTx(tx, timeout)
 	defer cancel()
 	return writeTx.Clauses(clause.OnConflict{DoNothing: true}).Create(&events).Error
 }
 
-func searchEventTimeoutTx(tx *gorm.DB) (*gorm.DB, context.CancelFunc) {
-	ctx, cancel := context.WithTimeout(context.Background(), searchEventWriteTimeout)
+func searchEventTimeoutTx(tx *gorm.DB, timeout time.Duration) (*gorm.DB, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	return tx.WithContext(ctx), cancel
 }
 

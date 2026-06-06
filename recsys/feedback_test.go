@@ -25,7 +25,23 @@ func TestFeedbackOpenIsSoftFatigue(t *testing.T) {
 }
 
 func TestCurrentUserIDReturnsZeroForNilContext(t *testing.T) {
+	oldMode := config.Config.Mode
+	config.Config.Mode = "production"
+	t.Cleanup(func() {
+		config.Config.Mode = oldMode
+	})
+
 	assert.Equal(t, 0, currentUserID(nil))
+}
+
+func TestCurrentUserIDReturnsTestUserForNilContextInTestMode(t *testing.T) {
+	oldMode := config.Config.Mode
+	config.Config.Mode = "test"
+	t.Cleanup(func() {
+		config.Config.Mode = oldMode
+	})
+
+	assert.Equal(t, 1, currentUserID(nil))
 }
 
 func TestFeedbackSuppressesExplicitAndRepeatedExposure(t *testing.T) {
