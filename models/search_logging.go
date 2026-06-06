@@ -1,6 +1,7 @@
 package models
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 )
 
 const searchActionLookback = 2 * time.Hour
+const searchEventWriteTimeout = 2 * time.Second
 
 type SearchResultLogItem struct {
 	FloorID   int
@@ -99,9 +101,16 @@ func LogSearchImpressions(tx *gorm.DB, c *fiber.Ctx, keyword string, accurate bo
 	if len(events) == 0 {
 		return
 	}
-	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&events).Error; err != nil {
-		log.Warn().Err(err).Msg("could not write search impressions")
+	write := func() {
+		if err := writeSearchEvents(tx, events); err != nil {
+			log.Warn().Err(err).Str("request_id", requestID).Msg("could not write search impressions")
+		}
 	}
+	if config.Config.Mode == "production" && tx == DB {
+		go write()
+		return
+	}
+	write()
 }
 
 func LogSearchAction(tx *gorm.DB, userID int, holeID int, eventType string, requestID string) {
@@ -117,8 +126,11 @@ func LogSearchAction(tx *gorm.DB, userID int, holeID int, eventType string, requ
 	}
 
 	now := time.Now()
+	queryTx, cancel := searchEventTimeoutTx(tx)
+	defer cancel()
+
 	var impressions []SearchEvent
-	if err := tx.Model(&SearchEvent{}).
+	if err := queryTx.Model(&SearchEvent{}).
 		Where("user_id = ?", userID).
 		Where("hole_id = ?", holeID).
 		Where("request_id = ?", requestID).
@@ -161,9 +173,23 @@ func LogSearchAction(tx *gorm.DB, userID int, holeID int, eventType string, requ
 	if len(events) == 0 {
 		return
 	}
-	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&events).Error; err != nil {
+	if err := writeSearchEvents(tx, events); err != nil {
 		log.Warn().Err(err).Str("request_id", requestID).Int("hole_id", holeID).Str("event_type", eventType).Msg("could not write search action")
 	}
+}
+
+func writeSearchEvents(tx *gorm.DB, events []SearchEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	writeTx, cancel := searchEventTimeoutTx(tx)
+	defer cancel()
+	return writeTx.Clauses(clause.OnConflict{DoNothing: true}).Create(&events).Error
+}
+
+func searchEventTimeoutTx(tx *gorm.DB) (*gorm.DB, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), searchEventWriteTimeout)
+	return tx.WithContext(ctx), cancel
 }
 
 func searchQueryStats(keyword string) (string, int, int) {
