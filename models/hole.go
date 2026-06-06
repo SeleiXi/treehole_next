@@ -184,78 +184,66 @@ func loadFloors(holes Holes) error {
 	}
 	holeIDs := utils.Models2IDSlice(holes)
 
-	// load all floors with holeIDs and ranking < HoleFloorSize or the last floor
-	// sorted by hole_id asc first and ranking asc second
-	var floors Floors
-	//err := DB.Raw(`select * from (
-	//SELECT id, content, anonyname, created_at, updated_at, deleted, fold, hole_id, user_id, special_tag,
-	//reply_to, modified, ranking, dislike, is_sensitive, is_actual_sensitive, `+"`like`"+`FROM (
-	//   SELECT *,
-	//          ROW_NUMBER() OVER (PARTITION BY hole_id ORDER BY id) AS row_num
-	//   FROM floor
-	//   WHERE hole_id IN ? and ((is_sensitive = 0 AND is_actual_sensitive IS NULL) OR is_actual_sensitive = 0)
-	//) AS ranked_floors
-	//WHERE row_num <= ?
-	//Union
-	//SELECT id, content, anonyname, created_at, updated_at, deleted, fold, hole_id, user_id, special_tag,
-	//reply_to, modified, ranking, dislike, is_sensitive, is_actual_sensitive, `+"`like`"+`FROM (
-	//   SELECT *,
-	//          ROW_NUMBER() OVER (PARTITION BY hole_id ORDER BY id desc) AS row_num
-	//   FROM floor
-	//   WHERE hole_id IN ? and ((is_sensitive = 0 AND is_actual_sensitive IS NULL) OR is_actual_sensitive = 0)
-	//) AS ranked_floors
-	//WHERE row_num = 1
-	//) f order by hole_id, id`, holeIDs, config.Config.HoleFloorSize, holeIDs).Scan(&floors).Error
-	err := DB.
-		Raw(
-			// using file sort
-			`SELECT * FROM (? UNION ?) f ORDER BY hole_id, ranking`,
-			// use index(idx_hole_ranking), type range, use MRR
-			DB.Model(&Floor{}).Where("hole_id in ? and ranking < ?", holeIDs, config.Config.HoleFloorSize),
-
-			// UNION, remove duplications
-			// use index(idx_hole_ranking), type eq_ref
-			DB.Model(&Floor{}).Where(
-				"(hole_id, ranking) in (?)",
-				// use index(PRIMARY), type range
-				DB.Model(&Hole{}).Select("id", "reply").Where("id in ?", holeIDs),
-			),
-		).Scan(&floors).Error
-	if err != nil {
+	var leadingFloors Floors
+	if err := DB.
+		Where("hole_id in ? and ranking < ?", holeIDs, config.Config.HoleFloorSize).
+		Order("hole_id, ranking").
+		Find(&leadingFloors).Error; err != nil {
 		return err
+	}
+
+	lastFloorPairs := make([][]interface{}, 0, len(holes))
+	for _, hole := range holes {
+		if hole == nil {
+			continue
+		}
+		lastFloorPairs = append(lastFloorPairs, []interface{}{hole.ID, hole.Reply})
+	}
+
+	var lastFloors Floors
+	if len(lastFloorPairs) > 0 {
+		if err := DB.
+			Where("(hole_id, ranking) in ?", lastFloorPairs).
+			Find(&lastFloors).Error; err != nil {
+			return err
+		}
+	}
+
+	floors := make(Floors, 0, len(leadingFloors)+len(lastFloors))
+	seen := make(map[int]bool, len(leadingFloors)+len(lastFloors))
+	for _, floor := range append(leadingFloors, lastFloors...) {
+		if floor == nil || seen[floor.ID] {
+			continue
+		}
+		seen[floor.ID] = true
+		floors = append(floors, floor)
 	}
 	if len(floors) == 0 {
 		return nil
 	}
 
-	/*
-			Bind floors to hole.
-			Note that floor is grouped by hole_id in hole_id asc order
-		and hole is in random order, so we have to find hole_id those floors
-		belong to both at the beginning and after floor group has changed.
-			To bind, we use two pointers. Binding occurs when the floor's hole_id
-		has changed, or when the floor is the last floor.
-			The complexity is O(m*n), where m is the number of holes and
-		n is the number of floors. Given that m is relatively small,
-		the complexity is acceptable.
-	*/
-	var left, right int
-	index := slices.IndexFunc(holes, func(hole *Hole) bool {
-		return hole.ID == floors[0].HoleID
-	})
-	for _, floor := range floors {
-		if floor.HoleID != holes[index].ID {
-			holes[index].Floors = floors[left:right]
-			left = right
-			index = slices.IndexFunc(holes, func(hole *Hole) bool {
-				return hole.ID == floor.HoleID
-			})
+	slices.SortFunc(floors, func(a, b *Floor) int {
+		if a.HoleID < b.HoleID {
+			return -1
 		}
-		right++
-	}
-	holes[index].Floors = floors[left:right]
+		if a.HoleID > b.HoleID {
+			return 1
+		}
+		if a.Ranking < b.Ranking {
+			return -1
+		}
+		if a.Ranking > b.Ranking {
+			return 1
+		}
+		return 0
+	})
 
+	floorsByHole := make(map[int]Floors, len(holes))
+	for _, floor := range floors {
+		floorsByHole[floor.HoleID] = append(floorsByHole[floor.HoleID], floor)
+	}
 	for _, hole := range holes {
+		hole.Floors = floorsByHole[hole.ID]
 		hole.SetHoleFloor()
 	}
 
