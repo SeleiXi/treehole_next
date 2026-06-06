@@ -10,7 +10,8 @@ RUN apk add --no-cache \
 
 COPY . .
 
-RUN CGO_ENABLED=0 go build -buildvcs=false -tags production -ldflags "-s -w" -o treehole
+RUN mkdir -p /root/.cache/go-buildtmp && \
+    GOTMPDIR=/root/.cache/go-buildtmp CGO_ENABLED=0 go build -buildvcs=false -tags production -ldflags "-s -w" -o treehole
 
 FROM alpine
 

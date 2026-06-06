@@ -14,21 +14,16 @@ import (
 	"treehole_next/apis/tag"
 	"treehole_next/apis/user"
 	"treehole_next/config"
-	_ "treehole_next/docs"
 	"treehole_next/models"
 
 	"github.com/gofiber/fiber/v2"
-	fiberSwagger "github.com/swaggo/fiber-swagger"
 )
 
 func registerRoutes(app *fiber.App) {
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.Redirect("/api")
 	})
-	app.Get("/docs", func(c *fiber.Ctx) error {
-		return c.Redirect("/docs/index.html")
-	})
-	app.Get("/docs/*", fiberSwagger.WrapHandler)
+	registerDocsRoutes(app)
 }
 
 func RegisterRoutes(app *fiber.App) {

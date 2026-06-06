@@ -9,6 +9,7 @@ require (
 	github.com/eko/gocache/store/redis/v4 v4.2.6
 	github.com/goccy/go-json v0.10.5
 	github.com/gofiber/fiber/v2 v2.52.13
+	github.com/go-sql-driver/mysql v1.9.3
 	github.com/google/uuid v1.6.0
 	github.com/hetiansu5/urlquery v1.2.7
 	github.com/opentreehole/go-common v0.1.7
@@ -53,7 +54,6 @@ require (
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.30.1 // indirect
-	github.com/go-sql-driver/mysql v1.9.3 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/klauspost/compress v1.18.4 // indirect
