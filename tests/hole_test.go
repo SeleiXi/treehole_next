@@ -98,6 +98,24 @@ func TestListHomePageRecommendFeed(t *testing.T) {
 	assert.NotEmpty(t, refreshed)
 }
 
+func TestListHomePageRecommendFeedReturnsGeneratedRequestID(t *testing.T) {
+	var holes Holes
+	res := testAPIModelWithQueryResponse(t, "get", "/api/holes/_homepage", 200, &holes, Map{
+		"order":  "recommend",
+		"length": 3,
+	})
+	assert.NotEmpty(t, holes)
+
+	requestID := res.Header.Get(utils.RequestIDHeader)
+	assert.NotEmpty(t, requestID)
+	assert.Equal(t, requestID, res.Header.Get("X-Request-ID"))
+
+	var count int64
+	err := DB.Model(&FeedEvent{}).Where("request_id = ?", requestID).Count(&count).Error
+	assert.Nil(t, err)
+	assert.EqualValues(t, len(holes), count)
+}
+
 func TestFeedbackAwareScoreSortSuppressesExplicitNegatives(t *testing.T) {
 	var holes Holes
 	testAPIModelWithQuery(t, "get", "/api/holes", 200, &holes, Map{

@@ -52,6 +52,11 @@ func testCommon(t *testing.T, method string, route string, statusCode int, data 
 
 // testCommonQuery tests status code and returns response body in bytes
 func testCommonQuery(t *testing.T, method string, route string, statusCode int, data ...Map) []byte {
+	responseBody, _ := testCommonQueryResponse(t, method, route, statusCode, data...)
+	return responseBody
+}
+
+func testCommonQueryResponse(t *testing.T, method string, route string, statusCode int, data ...Map) ([]byte, *http.Response) {
 	var err error
 	req, err := http.NewRequest(
 		strings.ToUpper(method),
@@ -75,7 +80,7 @@ func testCommonQuery(t *testing.T, method string, route string, statusCode int, 
 	responseBody, err := io.ReadAll(res.Body)
 	assert.Nilf(t, err, "decode response")
 
-	return responseBody
+	return responseBody, res
 }
 
 // testAPIGeneric inherits testCommon, decodes response body to json, tests whether it's expected
@@ -116,4 +121,11 @@ func testAPIModelWithQuery[T Models](t *testing.T, method string, route string, 
 	responseBytes := testCommonQuery(t, method, route, statusCode, data...)
 	err := json.Unmarshal(responseBytes, obj)
 	assert.Nilf(t, err, "unmarshal response")
+}
+
+func testAPIModelWithQueryResponse[T Models](t *testing.T, method string, route string, statusCode int, obj *T, data ...Map) *http.Response {
+	responseBytes, res := testCommonQueryResponse(t, method, route, statusCode, data...)
+	err := json.Unmarshal(responseBytes, obj)
+	assert.Nilf(t, err, "unmarshal response")
+	return res
 }

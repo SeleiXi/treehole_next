@@ -41,6 +41,7 @@ func SearchFloors(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	query.RequestID = EnsureRequestID(c, query.RequestID)
 
 	floors, err := SearchWithRequest(c, query.Search, query.Size, query.Offset, query.Accurate, query.StartTime, query.EndTime, query.RequestID)
 	if err != nil {

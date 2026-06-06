@@ -60,6 +60,7 @@ func ListHomePage(c *fiber.Ctx) (err error) {
 			query.Offset = query.Offset0
 		}
 	}
+	query.RequestID = EnsureRequestID(c, query.RequestID)
 
 	if recsys.ShouldUseRecommend(query.FeedMode, query.Order, query.SortStrategy) {
 		holes, err := recsys.GetHomeFeed(c, recsys.HomeFeedRequest{
@@ -349,6 +350,9 @@ func ListHoles(c *fiber.Ctx) error {
 	err := common.ValidateQuery(c, &query)
 	if err != nil {
 		return err
+	}
+	if recsys.IsFeedbackAwareRank(query.SortStrategy) {
+		query.RequestID = EnsureRequestID(c, query.RequestID)
 	}
 
 	var holes Holes

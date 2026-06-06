@@ -9,6 +9,7 @@ import (
 
 	. "treehole_next/config"
 	. "treehole_next/models"
+	"treehole_next/utils"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -64,6 +65,24 @@ func TestGetFloor(t *testing.T) {
 	assert.EqualValues(t, floor.Content, getFloor.Content)
 
 	testAPIModel(t, "get", "/api/floors/"+strconv.Itoa(largeInt), 404, &getFloor)
+}
+
+func TestSearchFloorsReturnsGeneratedRequestID(t *testing.T) {
+	var floors Floors
+	res := testAPIModelWithQueryResponse(t, "get", "/api/floors/search", 200, &floors, Map{
+		"search": "1",
+		"size":   2,
+	})
+	assert.NotEmpty(t, floors)
+
+	requestID := res.Header.Get(utils.RequestIDHeader)
+	assert.NotEmpty(t, requestID)
+	assert.Equal(t, requestID, res.Header.Get("X-Request-ID"))
+
+	var count int64
+	err := DB.Model(&SearchEvent{}).Where("request_id = ? AND event_type = ?", requestID, SearchEventImpression).Count(&count).Error
+	assert.Nil(t, err)
+	assert.EqualValues(t, len(floors), count)
 }
 
 func TestCreateFloor(t *testing.T) {
