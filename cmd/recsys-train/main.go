@@ -370,6 +370,7 @@ func searchFeatures(row searchRow) map[string]float64 {
 type homeRow struct {
 	Label             float64
 	UserID            int
+	RequestID         string
 	Reply             int
 	View              int
 	Good              bool
@@ -399,14 +400,26 @@ func loadHomeSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 	var rows []homeRow
 	err := db.Raw(`
 		SELECT
-			MAX(CASE
-				WHEN fe.event_type IN ('favorite', 'subscribe') THEN 1
-				WHEN fe.event_type = 'reply' THEN 0.9
-				WHEN fe.event_type IN ('open', 'click') THEN 0.65
-				WHEN fe.event_type IN ('hide', 'report') THEN 0
-				ELSE 0
-			END) AS label,
+			COALESCE((
+				SELECT MAX(CASE
+					WHEN fa.request_id = fe.request_id AND fe.request_id <> '' AND fa.event_type IN ('favorite', 'subscribe') THEN 1.0
+					WHEN fa.request_id = fe.request_id AND fe.request_id <> '' AND fa.event_type = 'reply' THEN 0.9
+					WHEN fa.request_id = fe.request_id AND fe.request_id <> '' AND fa.event_type IN ('open', 'click') THEN 0.7
+					WHEN fa.event_type IN ('favorite', 'subscribe') AND fa.created_at < DATE_ADD(fe.created_at, INTERVAL 30 MINUTE) THEN 0.85
+					WHEN fa.event_type = 'reply' AND fa.created_at < DATE_ADD(fe.created_at, INTERVAL 30 MINUTE) THEN 0.75
+					WHEN fa.event_type IN ('open', 'click') AND fa.created_at < DATE_ADD(fe.created_at, INTERVAL 30 MINUTE) THEN 0.55
+					WHEN fa.event_type IN ('hide', 'report') THEN 0.0
+					ELSE NULL
+				END)
+				FROM feed_event fa
+				WHERE fa.user_id = fe.user_id
+					AND fa.hole_id = fe.hole_id
+					AND fa.event_type IN ('open', 'click', 'reply', 'favorite', 'subscribe', 'hide', 'report')
+					AND fa.created_at >= fe.created_at
+					AND fa.created_at < DATE_ADD(fe.created_at, INTERVAL 2 HOUR)
+			), 0) AS label,
 			fe.user_id,
+			fe.request_id,
 			h.reply,
 			h.view,
 			h.good,
@@ -418,8 +431,24 @@ func loadHomeSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 			h.created_at AS hole_created_at,
 			h.updated_at AS hole_updated_at,
 			COALESCE(tc.tag_count, 0) AS tag_count,
-			SUM(CASE WHEN fe.event_type IN ('open', 'click') THEN 1 ELSE 0 END) AS open_count,
-			SUM(CASE WHEN fe.event_type = 'impression' THEN 1 ELSE 0 END) AS impression_count,
+			(
+				SELECT COUNT(*)
+				FROM feed_event fh
+				WHERE fh.user_id = fe.user_id
+					AND fh.hole_id = fe.hole_id
+					AND fh.event_type IN ('open', 'click')
+					AND fh.created_at < fe.created_at
+					AND fh.created_at >= DATE_SUB(fe.created_at, INTERVAL 7 DAY)
+			) AS open_count,
+			(
+				SELECT COUNT(*)
+				FROM feed_event fh
+				WHERE fh.user_id = fe.user_id
+					AND fh.hole_id = fe.hole_id
+					AND fh.event_type = 'impression'
+					AND fh.created_at < fe.created_at
+					AND fh.created_at >= DATE_SUB(fe.created_at, INTERVAL 7 DAY)
+			) AS impression_count,
 			hf.updated_at AS feature_updated_at,
 			hf.hot_score,
 			hf.quality_score,
@@ -429,7 +458,7 @@ func loadHomeSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 			hf.reply24h,
 			hf.view1h,
 			hf.view24h,
-			MAX(fe.created_at) AS sample_at
+			fe.created_at AS sample_at
 		FROM feed_event fe
 		JOIN hole h ON h.id = fe.hole_id
 		LEFT JOIN hole_feature hf ON hf.hole_id = fe.hole_id
@@ -437,8 +466,8 @@ func loadHomeSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 			SELECT hole_id, COUNT(*) AS tag_count FROM hole_tags GROUP BY hole_id
 		) tc ON tc.hole_id = fe.hole_id
 		WHERE fe.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
-		GROUP BY fe.user_id, fe.hole_id, h.id, hf.hole_id, tc.tag_count
-		ORDER BY sample_at DESC
+			AND fe.event_type = 'impression'
+		ORDER BY fe.created_at DESC
 		LIMIT ?
 	`, days, limit).Scan(&rows).Error
 	if err != nil {
@@ -450,10 +479,20 @@ func loadHomeSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 			label:    row.Label,
 			features: homeFeatures(row),
 			at:       row.SampleAt,
-			group:    fmt.Sprintf("user:%d", row.UserID),
+			group:    homeGroup(row),
 		})
 	}
 	return samples, nil
+}
+
+func homeGroup(row homeRow) string {
+	if row.RequestID != "" {
+		return row.RequestID
+	}
+	if !row.SampleAt.IsZero() {
+		return fmt.Sprintf("user:%d:%s", row.UserID, row.SampleAt.Format("200601021504"))
+	}
+	return fmt.Sprintf("user:%d", row.UserID)
 }
 
 func homeFeatures(row homeRow) map[string]float64 {

@@ -115,6 +115,23 @@ func TestHomeFeaturesUseOnlySampleTimeFeatureSnapshot(t *testing.T) {
 	assert.Equal(t, math.Log1p(float64(reply24h)), features["reply_24h_log"])
 }
 
+func TestHomeGroupUsesRequestOrMinuteBucket(t *testing.T) {
+	sampleAt := time.Date(2026, 6, 6, 10, 3, 40, 0, time.UTC)
+
+	assert.Equal(t, "request-1", homeGroup(homeRow{
+		UserID:    42,
+		RequestID: "request-1",
+		SampleAt:  sampleAt,
+	}))
+	assert.Equal(t, "user:42:202606061003", homeGroup(homeRow{
+		UserID:   42,
+		SampleAt: sampleAt,
+	}))
+	assert.Equal(t, "user:42", homeGroup(homeRow{
+		UserID: 42,
+	}))
+}
+
 func TestValidateTrainingDataRejectsWeakData(t *testing.T) {
 	samples := []sample{
 		{label: 1, group: "q1"},
