@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -54,6 +55,64 @@ func TestEvaluateReportsModelAndBaselineMetrics(t *testing.T) {
 	assert.Contains(t, metrics, "baseline_auc")
 	assert.Contains(t, metrics, "model_ndcg_10")
 	assert.Contains(t, metrics, "baseline_ndcg_10")
+}
+
+func TestSearchFeaturesIgnoreFutureFeatureSnapshot(t *testing.T) {
+	sampleAt := time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
+	futureFeatureAt := sampleAt.Add(time.Minute)
+	score := 12.0
+	reply24h := 8
+
+	features := searchFeatures(searchRow{
+		SampleAt:         sampleAt,
+		FeatureUpdatedAt: &futureFeatureAt,
+		HotScore:         &score,
+		Reply24h:         &reply24h,
+	})
+
+	assert.NotContains(t, features, "feature_hot_score")
+	assert.NotContains(t, features, "feature_reply_24h_log")
+
+	pastFeatureAt := sampleAt.Add(-time.Minute)
+	features = searchFeatures(searchRow{
+		SampleAt:         sampleAt,
+		FeatureUpdatedAt: &pastFeatureAt,
+		HotScore:         &score,
+		Reply24h:         &reply24h,
+	})
+
+	assert.Equal(t, score, features["feature_hot_score"])
+	assert.Equal(t, math.Log1p(float64(reply24h)), features["feature_reply_24h_log"])
+}
+
+func TestHomeFeaturesUseOnlySampleTimeFeatureSnapshot(t *testing.T) {
+	sampleAt := time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
+	futureFeatureAt := sampleAt.Add(time.Minute)
+	score := 9.0
+	reply24h := 100
+
+	features := homeFeatures(homeRow{
+		SampleAt:         sampleAt,
+		Reply:            3,
+		FeatureUpdatedAt: &futureFeatureAt,
+		HotScore:         &score,
+		Reply24h:         &reply24h,
+	})
+
+	assert.NotContains(t, features, "feature_hot_score")
+	assert.Equal(t, math.Log1p(3.0), features["reply_24h_log"])
+
+	pastFeatureAt := sampleAt.Add(-time.Minute)
+	features = homeFeatures(homeRow{
+		SampleAt:         sampleAt,
+		Reply:            3,
+		FeatureUpdatedAt: &pastFeatureAt,
+		HotScore:         &score,
+		Reply24h:         &reply24h,
+	})
+
+	assert.Equal(t, score, features["feature_hot_score"])
+	assert.Equal(t, math.Log1p(float64(reply24h)), features["reply_24h_log"])
 }
 
 func TestValidateTrainingDataRejectsWeakData(t *testing.T) {

@@ -25,6 +25,8 @@ type sample struct {
 	group    string
 }
 
+const trainingFeatureMaxAge = 15 * time.Minute
+
 type trainingDataGate struct {
 	minSamples   int
 	minPositives int
@@ -345,7 +347,7 @@ func searchFeatures(row searchRow) map[string]float64 {
 	if row.HoleFrozen {
 		features["hole_is_frozen"] = 1
 	}
-	if row.FeatureUpdatedAt != nil && row.FeatureUpdatedAt.After(now.Add(-15*time.Minute)) {
+	if featureFreshAt(row.FeatureUpdatedAt, now) {
 		if row.HotScore != nil {
 			features["feature_hot_score"] = *row.HotScore
 		}
@@ -463,7 +465,8 @@ func homeFeatures(row homeRow) map[string]float64 {
 	updateHours := elapsedHours(now, row.HoleUpdatedAt)
 	reply24h := float64(row.Reply)
 	view24h := float64(row.View)
-	if row.FeatureUpdatedAt != nil && row.FeatureUpdatedAt.After(now.Add(-15*time.Minute)) {
+	hasFreshFeature := featureFreshAt(row.FeatureUpdatedAt, now)
+	if hasFreshFeature {
 		if row.Reply24h != nil {
 			reply24h = float64(*row.Reply24h)
 		}
@@ -515,7 +518,7 @@ func homeFeatures(row homeRow) map[string]float64 {
 	if ageHours <= 48 {
 		features["is_fresh_post"] = 1
 	}
-	if row.FeatureUpdatedAt != nil && row.FeatureUpdatedAt.After(now.Add(-15*time.Minute)) {
+	if hasFreshFeature {
 		if row.HotScore != nil {
 			features["feature_hot_score"] = *row.HotScore
 		}
@@ -920,6 +923,17 @@ func elapsedHours(now time.Time, then time.Time) float64 {
 		return 0
 	}
 	return now.Sub(then).Hours()
+}
+
+func featureFreshAt(updatedAt *time.Time, sampleAt time.Time) bool {
+	if updatedAt == nil {
+		return false
+	}
+	if sampleAt.IsZero() {
+		sampleAt = time.Now()
+	}
+	age := sampleAt.Sub(*updatedAt)
+	return age >= 0 && age <= trainingFeatureMaxAge
 }
 
 func sigmoid(value float64) float64 {
