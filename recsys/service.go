@@ -28,7 +28,6 @@ func GetHomeFeed(c *fiber.Ctx, req HomeFeedRequest) (models.Holes, error) {
 			}
 			if ok {
 				holes = cached
-				logImpressions(tx, c, holes, req.RequestID)
 				return nil
 			}
 		}
@@ -39,7 +38,6 @@ func GetHomeFeed(c *fiber.Ctx, req HomeFeedRequest) (models.Holes, error) {
 			}
 			if ok {
 				holes = cached
-				logImpressions(tx, c, holes, req.RequestID)
 				return nil
 			}
 			if req.CursorScore == nil {
@@ -71,10 +69,13 @@ func GetHomeFeed(c *fiber.Ctx, req HomeFeedRequest) (models.Holes, error) {
 			ordered = ordered[:req.PageSize()]
 		}
 		holes = scoredHoles(ordered)
-		logImpressions(tx, c, holes, req.RequestID)
 		return nil
 	})
-	return holes, err
+	if err != nil {
+		return holes, err
+	}
+	logImpressions(models.DB, c, holes, req.RequestID)
+	return holes, nil
 }
 
 func scoredHoles(scored []scoredHole) models.Holes {

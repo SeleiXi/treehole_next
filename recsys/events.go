@@ -114,22 +114,6 @@ func LogImpressions(tx *gorm.DB, c *fiber.Ctx, holes models.Holes, feedMode stri
 	}
 
 	seenInRequest := map[int]bool{}
-	if requestID != "" {
-		var existing []int
-		if err := tx.Model(&models.FeedEvent{}).
-			Where("user_id = ?", userID).
-			Where("request_id = ?", requestID).
-			Where("event_type = ?", models.FeedEventImpression).
-			Where("hole_id IN ?", holeIDs).
-			Pluck("hole_id", &existing).Error; err != nil {
-			log.Warn().Err(err).Str("request_id", requestID).Msg("could not dedupe feed impressions")
-		} else {
-			for _, holeID := range existing {
-				seenInRequest[holeID] = true
-			}
-		}
-	}
-
 	now := time.Now()
 	events := make([]models.FeedEvent, 0, len(holes))
 	for i, hole := range holes {
@@ -151,7 +135,14 @@ func LogImpressions(tx *gorm.DB, c *fiber.Ctx, holes models.Holes, feedMode stri
 	if len(events) == 0 {
 		return
 	}
-	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&events).Error; err != nil {
-		log.Warn().Err(err).Msg("could not write feed impressions")
+	write := func() {
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&events).Error; err != nil {
+			log.Warn().Err(err).Msg("could not write feed impressions")
+		}
 	}
+	if config.Config.Mode == "production" && tx == models.DB {
+		go write()
+		return
+	}
+	write()
 }

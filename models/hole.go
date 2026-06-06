@@ -5,8 +5,6 @@ import (
 	"strconv"
 	"time"
 
-	"golang.org/x/exp/maps"
-
 	"github.com/gofiber/fiber/v2"
 	"github.com/opentreehole/go-common"
 	"golang.org/x/exp/slices"
@@ -140,39 +138,50 @@ func loadTags(holes Holes) (err error) {
 		hole.Tags = Tags{}
 	}
 
-	var holeTags HoleTags
-	err = DB.Where("hole_id in ?", holeIDs).Find(&holeTags).Error
+	type holeTagRow struct {
+		HoleID            int
+		ID                int
+		CreatedAt         time.Time
+		UpdatedAt         time.Time
+		Name              string
+		Temperature       int
+		IsZZMG            bool
+		IsSensitive       bool
+		IsActualSensitive *bool
+		Nsfw              bool
+	}
+	var rows []holeTagRow
+	err = DB.Table("hole_tags").
+		Select("hole_tags.hole_id, tag.id, tag.created_at, tag.updated_at, tag.name, tag.temperature, tag.is_zzmg, tag.is_sensitive, tag.is_actual_sensitive, tag.nsfw").
+		Joins("JOIN tag ON tag.id = hole_tags.tag_id").
+		Where("hole_tags.hole_id in ?", holeIDs).
+		Order("hole_tags.hole_id, hole_tags.tag_id").
+		Scan(&rows).Error
 	if err != nil {
 		return err
 	}
 
-	mapping := make(map[int][]int)
-	tagIDs := make(map[int]bool)
-	for _, holeTag := range holeTags {
-		mapping[holeTag.HoleID] = append(mapping[holeTag.HoleID], holeTag.TagID)
-		tagIDs[holeTag.TagID] = true
-	}
-
-	var tags Tags
-	err = DB.Where("id in ?", maps.Keys(tagIDs)).Find(&tags).Error
-	if err != nil {
-		return err
-	}
-
-	tagMap := make(map[int]*Tag)
-	for _, tag := range tags {
-		// remove sensitive tags
+	mapping := make(map[int]Tags)
+	for _, row := range rows {
+		tag := &Tag{
+			ID:                row.ID,
+			CreatedAt:         row.CreatedAt,
+			UpdatedAt:         row.UpdatedAt,
+			Name:              row.Name,
+			Temperature:       row.Temperature,
+			IsZZMG:            row.IsZZMG,
+			IsSensitive:       row.IsSensitive,
+			IsActualSensitive: row.IsActualSensitive,
+			Nsfw:              row.Nsfw,
+			TagID:             row.ID,
+		}
 		if !tag.Sensitive() {
-			tagMap[tag.ID] = tag
+			mapping[row.HoleID] = append(mapping[row.HoleID], tag)
 		}
 	}
 
 	for _, hole := range holes {
-		for _, tagID := range mapping[hole.ID] {
-			if tagMap[tagID] != nil {
-				hole.Tags = append(hole.Tags, tagMap[tagID])
-			}
-		}
+		hole.Tags = mapping[hole.ID]
 	}
 
 	return nil

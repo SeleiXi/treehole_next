@@ -76,3 +76,35 @@ func TestUpdateAISummaryAvailabilityUsesBatchedFloorStats(t *testing.T) {
 	require.False(t, holes[1].AISummaryAvailable)
 	require.False(t, holes[2].AISummaryAvailable)
 }
+
+func TestLoadTagsUsesJoinedRowsAndFiltersSensitiveTags(t *testing.T) {
+	oldDB := DB
+	t.Cleanup(func() {
+		DB = oldDB
+	})
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		NamingStrategy: schema.NamingStrategy{SingularTable: true},
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&Tag{}, &HoleTag{}))
+	DB = db
+
+	now := time.Now()
+	require.NoError(t, db.Create(&[]Tag{
+		{ID: 1, CreatedAt: now, UpdatedAt: now, Name: "visible"},
+		{ID: 2, CreatedAt: now, UpdatedAt: now, Name: "hidden", IsSensitive: true},
+	}).Error)
+	require.NoError(t, db.Create(&[]HoleTag{
+		{HoleID: 10, TagID: 1},
+		{HoleID: 10, TagID: 2},
+	}).Error)
+
+	holes := Holes{{ID: 10}}
+
+	require.NoError(t, loadTags(holes))
+
+	require.Len(t, holes[0].Tags, 1)
+	require.Equal(t, "visible", holes[0].Tags[0].Name)
+	require.Equal(t, 1, holes[0].Tags[0].TagID)
+}
