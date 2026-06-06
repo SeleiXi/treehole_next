@@ -60,29 +60,7 @@ func mysqlDB() *gorm.DB {
 
 func InitDB() {
 	var err error
-	switch config.Config.Mode {
-	case "production":
-		DB = mysqlDB()
-	case "test":
-		fallthrough
-	case "bench":
-		DB = memoryDB()
-	case "dev":
-		if config.Config.DbURL == "" {
-			DB = sqliteDB()
-		} else {
-			DB = mysqlDB()
-		}
-	default:
-		log.Fatal().Msg("unknown mode")
-	}
-
-	switch config.Config.Mode {
-	case "test":
-		fallthrough
-	case "dev":
-		DB = DB.Debug()
-	}
+	DB = OpenConfiguredDB()
 
 	err = DB.SetupJoinTable(&User{}, "UserLikedFloors", &FloorLike{})
 	if err != nil {
@@ -116,6 +94,34 @@ func InitDB() {
 	if err != nil {
 		log.Fatal().Err(err).Send()
 	}
+}
+
+func OpenConfiguredDB() *gorm.DB {
+	var db *gorm.DB
+	switch config.Config.Mode {
+	case "production":
+		db = mysqlDB()
+	case "test":
+		fallthrough
+	case "bench":
+		db = memoryDB()
+	case "dev":
+		if config.Config.DbURL == "" {
+			db = sqliteDB()
+		} else {
+			db = mysqlDB()
+		}
+	default:
+		log.Fatal().Msg("unknown mode")
+	}
+
+	switch config.Config.Mode {
+	case "test":
+		fallthrough
+	case "dev":
+		db = db.Debug()
+	}
+	return db
 }
 
 func shouldAutoMigrate() bool {
