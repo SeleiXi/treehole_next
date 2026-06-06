@@ -27,7 +27,8 @@ type CreateModel struct {
 	// Admin and Operator only
 	SpecialTag string `json:"special_tag" validate:"omitempty,max=16"`
 	// id of the floor to which replied
-	ReplyTo int `json:"reply_to" validate:"min=0"`
+	ReplyTo   int    `json:"reply_to" validate:"min=0"`
+	RequestID string `json:"request_id"`
 }
 
 type CreateOldModel struct {

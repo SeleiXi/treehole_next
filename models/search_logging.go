@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"treehole_next/config"
+	"treehole_next/utils"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/rs/zerolog/log"
@@ -118,7 +119,7 @@ func LogSearchAction(tx *gorm.DB, userID int, holeID int, eventType string, requ
 	if !config.Config.SearchEventLogging || userID == 0 || holeID == 0 || !validSearchActionEventType(eventType) {
 		return
 	}
-	requestID = strings.TrimSpace(requestID)
+	requestID = utils.IncomingRequestID(nil, requestID)
 	if requestID == "" {
 		return
 	}

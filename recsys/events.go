@@ -12,6 +12,7 @@ import (
 
 	"treehole_next/config"
 	"treehole_next/models"
+	"treehole_next/utils"
 )
 
 func currentUserID(c *fiber.Ctx) int {
@@ -64,6 +65,7 @@ func LogEvent(c *fiber.Ctx, tx *gorm.DB, holeID int, eventType string, feedMode 
 	if feedMode == "" {
 		feedMode = ModeClassic
 	}
+	requestID = utils.IncomingRequestID(c, requestID)
 	event := models.FeedEvent{
 		UserID:    userID,
 		HoleID:    holeID,

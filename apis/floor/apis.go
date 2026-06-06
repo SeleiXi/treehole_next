@@ -226,7 +226,7 @@ func CreateFloor(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	recsys.LogEvent(c, DB, hole.ID, FeedEventReply, c.Query("feed_mode", recsys.ModeClassic), -1, c.Query("request_id"))
+	recsys.LogEvent(c, DB, hole.ID, FeedEventReply, c.Query("feed_mode", recsys.ModeClassic), -1, body.RequestID)
 
 	return c.Status(201).JSON(&floor)
 }
@@ -296,7 +296,7 @@ func CreateFloorOld(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	recsys.LogEvent(c, DB, hole.ID, FeedEventReply, c.Query("feed_mode", recsys.ModeClassic), -1, c.Query("request_id"))
+	recsys.LogEvent(c, DB, hole.ID, FeedEventReply, c.Query("feed_mode", recsys.ModeClassic), -1, body.RequestID)
 
 	return c.Status(201).JSON(&CreateOldResponse{
 		Data:    floor,

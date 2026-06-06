@@ -34,8 +34,9 @@ func (q *ListModel) BaseQuery() *gorm.DB {
 }
 
 type AddModel struct {
-	FloorID int    `json:"floor_id" validate:"required"`
-	Reason  string `json:"reason" validate:"required,max=128"`
+	FloorID   int    `json:"floor_id" validate:"required"`
+	Reason    string `json:"reason" validate:"required,max=128"`
+	RequestID string `json:"request_id"`
 }
 
 type DeleteModel struct {

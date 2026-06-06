@@ -12,8 +12,9 @@ type ListFavoriteModel struct {
 }
 
 type AddModel struct {
-	HoleID          int `json:"hole_id"`
-	FavoriteGroupID int `json:"favorite_group_id" default:"0"`
+	HoleID          int    `json:"hole_id"`
+	FavoriteGroupID int    `json:"favorite_group_id" default:"0"`
+	RequestID       string `json:"request_id"`
 }
 
 type ModifyModel struct {

@@ -82,7 +82,7 @@ func AddSubscription(c *fiber.Ctx) error {
 		if err != nil {
 			return err
 		}
-		recsys.LogEvent(c, tx, body.HoleID, FeedEventSubscribe, recsys.ModeClassic, -1, c.Query("request_id"))
+		recsys.LogEvent(c, tx, body.HoleID, FeedEventSubscribe, recsys.ModeClassic, -1, body.RequestID)
 
 		// create response
 		data, err = UserGetSubscriptionData(tx, userID)

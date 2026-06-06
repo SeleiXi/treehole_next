@@ -1,12 +1,14 @@
 package recsys
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
 	"treehole_next/config"
 	"treehole_next/models"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/stretchr/testify/assert"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -106,6 +108,36 @@ func TestLogEventDedupesRequestKey(t *testing.T) {
 	var count int64
 	assert.NoError(t, db.Model(&models.FeedEvent{}).Count(&count).Error)
 	assert.EqualValues(t, 1, count)
+}
+
+func TestLogEventFallsBackToQueryRequestID(t *testing.T) {
+	oldMode := config.Config.Mode
+	config.Config.Mode = "test"
+	t.Cleanup(func() {
+		config.Config.Mode = oldMode
+	})
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		NamingStrategy: schema.NamingStrategy{SingularTable: true},
+	})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.FeedEvent{}, &models.SearchEvent{}))
+
+	app := fiber.New()
+	app.Get("/event", func(c *fiber.Ctx) error {
+		LogEvent(c, db, 1, models.FeedEventReport, ModeRecommend, -1, "")
+		return c.SendStatus(fiber.StatusNoContent)
+	})
+	req, err := http.NewRequest(http.MethodGet, "/event?request_id=query-request-1", nil)
+	assert.NoError(t, err)
+	res, err := app.Test(req, -1)
+	assert.NoError(t, err)
+	assert.Equal(t, fiber.StatusNoContent, res.StatusCode)
+
+	var event models.FeedEvent
+	assert.NoError(t, db.Where("event_type = ?", models.FeedEventReport).Take(&event).Error)
+	assert.Equal(t, "query-request-1", event.RequestID)
+	assert.NotNil(t, event.RequestDedupKey)
 }
 
 func TestRecentHardSuppressedOnlyReturnsNegativeFeedback(t *testing.T) {

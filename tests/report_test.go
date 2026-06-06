@@ -45,6 +45,20 @@ func TestAddReport(t *testing.T) {
 	testAPI(t, "post", "/api/reports", 204, data)
 }
 
+func TestAddReportLogsBodyRequestID(t *testing.T) {
+	requestID := "test-report-body-request"
+	data := Map{"floor_id": REPORT_FLOOR_BASE_ID + 15, "reason": "123456789", "request_id": requestID}
+
+	testAPI(t, "post", "/api/reports", 204, data)
+
+	var count int64
+	err := DB.Model(&FeedEvent{}).
+		Where("request_id = ? AND event_type = ? AND hole_id = ?", requestID, FeedEventReport, 1000).
+		Count(&count).Error
+	assert.Nil(t, err)
+	assert.EqualValues(t, 1, count)
+}
+
 func TestDeleteReport(t *testing.T) {
 	reportID := REPORT_BASE_ID + 7
 	var getReport Report

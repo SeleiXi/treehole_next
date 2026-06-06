@@ -117,7 +117,7 @@ func AddReport(c *fiber.Ctx) error {
 	}
 	var floor Floor
 	if err := DB.First(&floor, body.FloorID).Error; err == nil {
-		recsys.LogEvent(c, DB, floor.HoleID, FeedEventReport, recsys.ModeClassic, -1, "")
+		recsys.LogEvent(c, DB, floor.HoleID, FeedEventReport, recsys.ModeClassic, -1, body.RequestID)
 	}
 
 	// Send Notification

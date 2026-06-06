@@ -10,7 +10,8 @@ type ListModel struct {
 }
 
 type AddModel struct {
-	HoleID int `json:"hole_id"`
+	HoleID    int    `json:"hole_id"`
+	RequestID string `json:"request_id"`
 }
 
 type DeleteModel struct {
