@@ -85,7 +85,8 @@ func SearchFloorsOld(c *fiber.Ctx, query *ListOldModel) error {
 		return common.Forbidden("茶楼流量激增，搜索功能暂缓开放")
 	}
 
-	floors, err := Search(c, query.Search, query.Size, query.Offset, false, nil, nil)
+	query.RequestID = EnsureRequestID(c, query.RequestID)
+	floors, err := SearchWithRequest(c, query.Search, query.Size, query.Offset, false, nil, nil, query.RequestID)
 	if err != nil {
 		return err
 	}
