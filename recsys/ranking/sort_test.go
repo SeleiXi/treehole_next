@@ -29,3 +29,8 @@ func TestRecommendScoreUsesBoundedRecencyInsteadOfAbsoluteTimestamp(t *testing.T
 	assert.Equal(t, 4.0, expr.Vars[6])
 	assert.Equal(t, 6.0, expr.Vars[9])
 }
+
+func TestNormalizeStrategyAcceptsModelRecommendAlias(t *testing.T) {
+	assert.Equal(t, StrategyRecommend, NormalizeStrategy("model_recommend"))
+	assert.Equal(t, StrategyRecommend, NormalizeStrategy("model-recommend"))
+}

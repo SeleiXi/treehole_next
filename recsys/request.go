@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	ModeClassic   = "classic"
-	ModeRecommend = "recommend"
+	ModeClassic        = "classic"
+	ModeRecommend      = "recommend"
+	ModeModelRecommend = "model_recommend"
 )
 
 type HomeFeedRequest struct {
@@ -37,22 +38,33 @@ func (r HomeFeedRequest) PageSize() int {
 func ShouldUseRecommend(feedMode, order, sortStrategy string) bool {
 	return normalize(feedMode) == ModeRecommend ||
 		normalize(order) == ModeRecommend ||
-		normalize(sortStrategy) == ModeRecommend
+		normalize(sortStrategy) == ModeRecommend ||
+		normalize(feedMode) == ModeModelRecommend ||
+		normalize(order) == ModeModelRecommend ||
+		normalize(sortStrategy) == ModeModelRecommend
 }
 
 func IsFeedbackAwareRank(sortStrategy string) bool {
 	switch normalize(sortStrategy) {
-	case ModeRecommend, "hot", "hotness":
+	case ModeRecommend, ModeModelRecommend, "hot", "hotness":
 		return true
 	default:
 		return false
 	}
 }
 
+func ShouldUseModelRank(feedMode, order, sortStrategy string) bool {
+	return normalize(feedMode) == ModeModelRecommend ||
+		normalize(order) == ModeModelRecommend ||
+		normalize(sortStrategy) == ModeModelRecommend
+}
+
 func normalize(value string) string {
 	switch value {
 	case "recommend", "recommended", "feed", "recommend_feed":
 		return ModeRecommend
+	case "model_recommend", "model-recommend", "model", "model_feed", "model-recommend-feed":
+		return ModeModelRecommend
 	case "classic", "active", "time_updated", "time_created", "created_at", "updated_at", "original", "":
 		return ModeClassic
 	default:

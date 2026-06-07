@@ -381,7 +381,7 @@ func TestRankCandidatesFallsBackToSoftSuppressedHoles(t *testing.T) {
 		}
 	}
 
-	scored, err := rankCandidatesForSize(db, nil, []int{1, 2}, now, 2)
+	scored, err := rankCandidatesForSize(db, nil, []int{1, 2}, now, 2, true)
 
 	assert.NoError(t, err)
 	assert.Len(t, scored, 2)

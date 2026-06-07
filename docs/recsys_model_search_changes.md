@@ -17,6 +17,22 @@ The implementation is intentionally a lightweight learning-to-rank reranker, not
 a placeholder architecture. It is cheap enough for production CPU inference and
 keeps the training artifact inspectable.
 
+## User-Facing Ranking Modes
+
+The forum sort menu now keeps the existing `Recommend` option and adds a
+separate `Model Recommend` option.
+
+```text
+Recommend       -> order=recommend, sort_strategy=recommend
+Model Recommend -> order=model_recommend, sort_strategy=model_recommend
+```
+
+Both modes use the recommendation recall flow, feedback filters, snapshot
+pagination, and score cursors. Only `model_recommend` loads
+`RECSYS_MODEL_PATH` for online model scoring. Plain `recommend` remains the
+rule/feedback recommendation path, so production can compare the learned ranker
+against the rule baseline without changing the menu semantics.
+
 ## Why Existing Code Was Changed
 
 ### `models/feed_event.go` and `models/search_event.go`
@@ -75,6 +91,8 @@ This keeps recency useful without letting it dominate engagement. `hot` is now a
 global engagement-heavy score. It only hard-filters hide/report feedback and no
 longer demotes posts merely because the current user opened them. `recommend`
 keeps personalized fatigue because that mode is explicitly recommendation-like.
+`model_recommend` is accepted as a recommend-family strategy but is treated as a
+separate request mode by `recsys.ShouldUseModelRank`.
 
 ### `cmd/recsys-train`
 
@@ -117,6 +135,10 @@ RECSYS_MODEL_PATH=/app/models/home_model.json
 SEARCH_MODEL_RANKING=true
 SEARCH_MODEL_PATH=/app/models/search_model.json
 ```
+
+The model files are JSON linear models loaded by `recsys/modelrank`; no GPU or
+external model server is required. Local CPU loading and scoring are covered by
+the `recsys/modelrank` unit tests.
 
 ## Extension Rules
 

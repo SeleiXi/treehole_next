@@ -14,10 +14,10 @@ import (
 )
 
 func rankCandidates(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Time) ([]scoredHole, error) {
-	return rankCandidatesForSize(tx, c, holeIDs, now, 1)
+	return rankCandidatesForSize(tx, c, holeIDs, now, 1, true)
 }
 
-func rankCandidatesForSize(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Time, minResults int) ([]scoredHole, error) {
+func rankCandidatesForSize(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Time, minResults int, useModel bool) ([]scoredHole, error) {
 	if len(holeIDs) == 0 {
 		return nil, nil
 	}
@@ -33,7 +33,10 @@ func rankCandidatesForSize(tx *gorm.DB, c *fiber.Ctx, holeIDs []int, now time.Ti
 	}
 	feedback := loadUserFeedback(tx, c, holeIDs, now)
 	holeTags := loadCandidateTags(tx, holeIDs)
-	model := loadRecsysRankModel()
+	var model *modelrank.LinearModel
+	if useModel {
+		model = loadRecsysRankModel()
+	}
 
 	scored := make([]scoredHole, 0, len(holes))
 	softSuppressed := make([]scoredHole, 0)

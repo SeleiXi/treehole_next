@@ -35,7 +35,7 @@ func NormalizeStrategy(strategy string) string {
 		return StrategyOriginal
 	case StrategyHot, "hotness":
 		return StrategyHot
-	case StrategyRecommend, "search_recommend", "search-recommend", "retrieval_rank_push":
+	case StrategyRecommend, "search_recommend", "search-recommend", "model_recommend", "model-recommend", "retrieval_rank_push":
 		return StrategyRecommend
 	default:
 		return StrategyOriginal
