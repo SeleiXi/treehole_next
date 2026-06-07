@@ -21,6 +21,12 @@ type HoleFeedbackSuppression struct {
 	Soft    map[int]bool
 }
 
+func (suppression HoleFeedbackSuppression) HardOnly() HoleFeedbackSuppression {
+	suppression.SoftIDs = nil
+	suppression.Soft = map[int]bool{}
+	return suppression
+}
+
 func feedbackUserID(c *fiber.Ctx) int {
 	if c != nil {
 		if userID, err := GetCurrUserID(c); err == nil && userID != 0 {

@@ -96,39 +96,44 @@ func applyScoreSort(db *gorm.DB, expr scoreExpr, opts Options) *gorm.DB {
 		Limit(opts.Size)
 }
 
-func unixSeconds(column string, dialect string) string {
+func ageHours(column string, dialect string) string {
 	if dialect == "sqlite" {
-		return "CAST(strftime('%s', " + column + ") AS REAL)"
+		return "MAX((CAST(strftime('%s', 'now') AS REAL) - CAST(strftime('%s', " + column + ") AS REAL)) / 3600.0, 0)"
 	}
-	return "UNIX_TIMESTAMP(" + column + ")"
+	return "GREATEST(TIMESTAMPDIFF(HOUR, " + column + ", NOW(3)), 0)"
+}
+
+func recencyBoost(column string, dialect string) string {
+	age := ageHours(column, dialect)
+	return "(? / (? + " + age + ") * ?)"
 }
 
 func hotScore(dialect string) scoreExpr {
-	updated := unixSeconds("hole.updated_at", dialect)
+	recency := recencyBoost("hole.updated_at", dialect)
 	return scoreExpr{
 		SQL: "(" +
 			"COALESCE(hole.reply, 0) * ? + " +
 			"COALESCE(hole.view, 0) * ? + " +
 			"COALESCE(hole.favorite_count, 0) * ? + " +
 			"COALESCE(hole.subscription_count, 0) * ? + " +
-			updated + " / ?" +
+			recency +
 			")",
-		Vars: []any{12.0, 0.25, 24.0, 18.0, 86400.0},
+		Vars: []any{12.0, 0.25, 24.0, 18.0, 24.0, 24.0, 8.0},
 	}
 }
 
 func recommendScore(dialect string) scoreExpr {
-	created := unixSeconds("hole.created_at", dialect)
-	updated := unixSeconds("hole.updated_at", dialect)
+	createdRecency := recencyBoost("hole.created_at", dialect)
+	updatedRecency := recencyBoost("hole.updated_at", dialect)
 	return scoreExpr{
 		SQL: "(" +
 			"COALESCE(hole.reply, 0) * ? + " +
 			"COALESCE(hole.view, 0) * ? + " +
 			"COALESCE(hole.favorite_count, 0) * ? + " +
 			"COALESCE(hole.subscription_count, 0) * ? + " +
-			created + " / ? + " +
-			updated + " / ?" +
+			createdRecency + " + " +
+			updatedRecency +
 			")",
-		Vars: []any{5.0, 0.15, 30.0, 18.0, 172800.0, 259200.0},
+		Vars: []any{5.0, 0.15, 30.0, 18.0, 24.0, 24.0, 4.0, 24.0, 24.0, 6.0},
 	}
 }

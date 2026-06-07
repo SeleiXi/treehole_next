@@ -49,6 +49,20 @@ go run ./cmd/recsys-train -task=search -db "$DB_URL" -days=30 -out /data/search_
 go run ./cmd/recsys-train -task=home -db "$DB_URL" -days=30 -out /data/home_model.json
 ```
 
+When imported historical content has little or no matching behavior log, train a
+bootstrapped cold-start model without writing fake events back to production
+tables:
+
+```bash
+go run ./cmd/recsys-train -task=search -db "$DB_URL" -days=30 -bootstrap-cold-start -out /data/search_model.json
+go run ./cmd/recsys-train -task=home -db "$DB_URL" -days=30 -bootstrap-cold-start -out /data/home_model.json
+```
+
+Bootstrap samples still come from real `hole`/`floor` engagement and feature
+rows, but metrics mark them with `bootstrap_cold_start=1` and
+`bootstrap_sample_count`. Once enough `feed_event` and `search_event` labels are
+available, run without `-bootstrap-cold-start` to train from observed feedback.
+
 The trainer builds pointwise logistic samples from real feedback:
 
 - `search`: `search_event` impressions are labeled positive when the same user

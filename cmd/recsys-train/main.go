@@ -55,6 +55,7 @@ func main() {
 		minNegatives = flag.Int("min-negatives", 20, "minimum negative labels required before writing a model")
 		minGroups    = flag.Int("min-groups", 10, "minimum distinct query/session/user groups required before writing a model")
 		allowWeak    = flag.Bool("allow-weak-data", false, "write a model even when data quality gates fail")
+		bootstrap    = flag.Bool("bootstrap-cold-start", false, "append weak cold-start samples from real hole/floor engagement when logged feedback is sparse")
 	)
 	flag.Parse()
 
@@ -80,16 +81,35 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	if len(samples) == 0 {
-		fatal(errors.New("no training samples found"))
-	}
-	if err := validateTrainingData(samples, trainingDataGate{
+	gate := trainingDataGate{
 		minSamples:   *minSamples,
 		minPositives: *minPositives,
 		minNegatives: *minNegatives,
 		minGroups:    *minGroups,
 		allowWeak:    *allowWeak,
-	}); err != nil {
+	}
+	eventSampleCount := len(samples)
+	bootstrapSampleCount := 0
+	if *bootstrap {
+		strictGate := gate
+		strictGate.allowWeak = false
+		if err := validateTrainingData(samples, strictGate); err != nil {
+			remaining := *limit - len(samples)
+			if remaining <= 0 {
+				remaining = *limit
+			}
+			bootstrapSamples, loadErr := loadBootstrapSamples(db, *task, *days, remaining)
+			if loadErr != nil {
+				fatal(loadErr)
+			}
+			bootstrapSampleCount = len(bootstrapSamples)
+			samples = append(samples, bootstrapSamples...)
+		}
+	}
+	if len(samples) == 0 {
+		fatal(errors.New("no training samples found"))
+	}
+	if err := validateTrainingData(samples, gate); err != nil {
 		fatal(err)
 	}
 
@@ -111,9 +131,14 @@ func main() {
 	model.MinScore = &minScore
 	model.MaxScore = &maxScore
 	metrics := map[string]float64{
-		"sample_count": float64(len(samples)),
-		"train_count":  float64(len(trainSamples)),
-		"eval_count":   float64(len(evalSamples)),
+		"sample_count":           float64(len(samples)),
+		"event_sample_count":     float64(eventSampleCount),
+		"bootstrap_sample_count": float64(bootstrapSampleCount),
+		"train_count":            float64(len(trainSamples)),
+		"eval_count":             float64(len(evalSamples)),
+	}
+	if bootstrapSampleCount > 0 {
+		metrics["bootstrap_cold_start"] = 1
 	}
 	if split.strategy != splitStrategyTime {
 		metrics["split_label_diversity_fallback"] = 1
@@ -221,6 +246,112 @@ func loadSearchSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 		})
 	}
 	return samples, nil
+}
+
+func loadBootstrapSamples(db *gorm.DB, task string, days int, limit int) ([]sample, error) {
+	switch task {
+	case "search":
+		return loadBootstrapSearchSamples(db, days, limit)
+	case "home", "feed", "recommend":
+		return loadBootstrapHomeSamples(db, days, limit)
+	default:
+		return nil, fmt.Errorf("unknown task %q", task)
+	}
+}
+
+func loadBootstrapSearchSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
+	var rows []searchRow
+	if err := db.Raw(bootstrapSearchSamplesSQL(), days, limit).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	assignBootstrapSearchRanks(rows)
+
+	samples := make([]sample, 0, len(rows))
+	for _, row := range rows {
+		samples = append(samples, sample{
+			label:    row.Label,
+			features: searchFeatures(row),
+			at:       row.SampleAt,
+			group:    searchGroup(row),
+		})
+	}
+	return samples, nil
+}
+
+func bootstrapSearchSamplesSQL() string {
+	return `
+		SELECT
+			CASE
+				WHEN f.` + "`like`" + ` >= 3 THEN 1.0
+				WHEN f.ranking = 0 AND (h.reply >= 5 OR h.favorite_count >= 5 OR h.view >= 80 OR h.good = TRUE) THEN 1.0
+				ELSE 0.0
+			END AS label,
+			0 AS user_id,
+			'' AS query_hash,
+			CONCAT('bootstrap-search-division-', h.division_id) AS request_id,
+			f.id AS floor_id,
+			f.hole_id,
+			4 AS query_length,
+			1 AS query_term_count,
+			0 AS position,
+			0 AS base_rank,
+			NULL AS base_score,
+			FALSE AS accurate,
+			'db' AS source,
+			f.created_at AS floor_created_at,
+			f.` + "`like`" + ` AS floor_like,
+			f.dislike AS floor_dislike,
+			f.ranking AS floor_ranking,
+			CHAR_LENGTH(f.content) AS content_length,
+			h.created_at AS hole_created_at,
+			h.updated_at AS hole_updated_at,
+			h.reply AS hole_reply,
+			h.view AS hole_view,
+			h.good AS hole_good,
+			h.locked AS hole_locked,
+			h.frozen AS hole_frozen,
+			h.division_id,
+			h.favorite_count,
+			h.subscription_count,
+			COALESCE(tag_counts.tag_count, 0) AS tag_count,
+			hf.updated_at AS feature_updated_at,
+			hf.hot_score,
+			hf.quality_score,
+			hf.controversy_score,
+			hf.reply24h,
+			hf.view24h,
+			NOW(3) AS sample_at
+		FROM floor f
+		JOIN hole h ON h.id = f.hole_id
+		LEFT JOIN hole_feature hf ON hf.hole_id = h.id
+		LEFT JOIN (
+			SELECT hole_id, COUNT(*) AS tag_count
+			FROM hole_tags
+			GROUP BY hole_id
+		) tag_counts ON tag_counts.hole_id = h.id
+		WHERE f.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+			AND h.hidden = FALSE
+			AND f.deleted = FALSE
+		ORDER BY h.division_id ASC, h.updated_at DESC, f.ranking ASC, f.id DESC
+		LIMIT ?
+	`
+}
+
+func assignBootstrapSearchRanks(rows []searchRow) {
+	ranks := map[string]int{}
+	for i := range rows {
+		group := rows[i].RequestID
+		if group == "" {
+			group = rows[i].QueryHash
+		}
+		if group == "" {
+			group = "bootstrap-search"
+		}
+		rank := ranks[group]
+		rows[i].BaseRank = rank
+		rows[i].Position = rank
+		ranks[group] = rank + 1
+	}
 }
 
 func searchSamplesSQL() string {
@@ -632,6 +763,72 @@ func loadHomeSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
 		})
 	}
 	return samples, nil
+}
+
+func loadBootstrapHomeSamples(db *gorm.DB, days int, limit int) ([]sample, error) {
+	var rows []homeRow
+	if err := db.Raw(bootstrapHomeSamplesSQL(), days, limit).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	samples := make([]sample, 0, len(rows))
+	for _, row := range rows {
+		samples = append(samples, sample{
+			label:    row.Label,
+			features: homeFeatures(row),
+			at:       row.SampleAt,
+			group:    homeGroup(row),
+		})
+	}
+	return samples, nil
+}
+
+func bootstrapHomeSamplesSQL() string {
+	return `
+		SELECT
+			CASE
+				WHEN h.reply >= 5 OR h.favorite_count >= 5 OR h.view >= 80 OR h.good = TRUE THEN 1.0
+				ELSE 0.0
+			END AS label,
+			0 AS user_id,
+			h.id AS hole_id,
+			CONCAT('bootstrap-home-division-', h.division_id) AS request_id,
+			h.reply,
+			h.view,
+			h.good,
+			h.locked,
+			h.frozen,
+			h.division_id,
+			h.favorite_count,
+			h.subscription_count,
+			h.created_at AS hole_created_at,
+			h.updated_at AS hole_updated_at,
+			COALESCE(tag_counts.tag_count, 0) AS tag_count,
+			0 AS open_count,
+			0 AS impression_count,
+			0.0 AS division_affinity,
+			0.0 AS tag_affinity,
+			hf.updated_at AS feature_updated_at,
+			hf.hot_score,
+			hf.quality_score,
+			hf.controversy_score,
+			hf.reply1h,
+			hf.reply6h,
+			hf.reply24h,
+			hf.view1h,
+			hf.view24h,
+			NOW(3) AS sample_at
+		FROM hole h
+		LEFT JOIN hole_feature hf ON hf.hole_id = h.id
+		LEFT JOIN (
+			SELECT hole_id, COUNT(*) AS tag_count
+			FROM hole_tags
+			GROUP BY hole_id
+		) tag_counts ON tag_counts.hole_id = h.id
+		WHERE h.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+			AND h.hidden = FALSE
+		ORDER BY h.division_id ASC, h.updated_at DESC, h.id DESC
+		LIMIT ?
+	`
 }
 
 func homeSamplesSQL() string {

@@ -466,11 +466,12 @@ func searchOldWithRequest(c *fiber.Ctx, keyword string, size, offset int, startT
 	}
 
 	now := time.Now()
+	querySet = applyDBFallbackSearchPlan(querySet)
 	querySet = applySearchFeedbackQuerySort(querySet, c, now)
 	err = querySet.
-		Where("content like ?", "%"+keyword+"%").
-		Where("hole_id in (?)", DB.Table("hole").Select("id").Where("hidden = false")).
-		Order("id desc").Find(&floors).Error
+		Where("floor.content LIKE ?", "%"+keyword+"%").
+		Where("EXISTS (SELECT 1 FROM hole WHERE hole.id = floor.hole_id AND hole.hidden = false)").
+		Order("floor.id desc").Find(&floors).Error
 	if err != nil {
 		log.Err(err).Msgf("error finding floors by keyword '%s'", keyword)
 		return nil, err
@@ -531,6 +532,13 @@ func expandedSearchFetchSize(size int) int {
 	return fetchSize
 }
 
+func applyDBFallbackSearchPlan(querySet *gorm.DB) *gorm.DB {
+	if DB.Dialector.Name() == "mysql" {
+		return querySet.Table("floor FORCE INDEX(PRIMARY)")
+	}
+	return querySet
+}
+
 func applySearchFeedbackQuerySort(querySet *gorm.DB, c *fiber.Ctx, now time.Time) *gorm.DB {
 	userID := feedbackUserID(c)
 	if userID == 0 {
@@ -540,14 +548,19 @@ func applySearchFeedbackQuerySort(querySet *gorm.DB, c *fiber.Ctx, now time.Time
 		now = time.Now()
 	}
 
-	querySet = querySet.Where(
-		"NOT EXISTS (SELECT 1 FROM feed_event fe WHERE fe.user_id = ? AND fe.hole_id = floor.hole_id AND fe.event_type IN ('hide', 'report') AND fe.created_at >= ?)",
-		userID,
-		now.Add(-feedbackNegativeLookback),
-	)
-	return querySet.
-		Select("floor.*, CASE WHEN EXISTS (SELECT 1 FROM feed_event fe WHERE fe.user_id = ? AND fe.hole_id = floor.hole_id AND fe.event_type IN ('open', 'click') AND fe.created_at >= ?) THEN 1 ELSE 0 END AS search_feedback_fatigue", userID, now.Add(-feedbackOpenLookback)).
-		Order("search_feedback_fatigue ASC")
+	var hardIDs []int
+	if err := DB.Model(&FeedEvent{}).
+		Where("user_id = ?", userID).
+		Where("event_type IN ?", []string{FeedEventHide, FeedEventReport}).
+		Where("created_at >= ?", now.Add(-feedbackNegativeLookback)).
+		Distinct().
+		Pluck("hole_id", &hardIDs).Error; err != nil {
+		return querySet
+	}
+	if len(hardIDs) != 0 {
+		querySet = querySet.Where("floor.hole_id NOT IN ?", hardIDs)
+	}
+	return querySet
 }
 
 func applySearchFeedbackFatigue(tx *gorm.DB, c *fiber.Ctx, floors Floors, limit int, now time.Time) Floors {

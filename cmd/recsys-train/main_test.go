@@ -225,6 +225,37 @@ func TestHomeTrainingQuerySelectsHoleIDForAffinityEnrichment(t *testing.T) {
 	assert.Contains(t, homeSQL, "0 AS impression_count")
 }
 
+func TestBootstrapTrainingQueriesUseRealEngagementWithoutEvents(t *testing.T) {
+	searchSQL := bootstrapSearchSamplesSQL()
+	assert.Contains(t, searchSQL, "FROM floor f")
+	assert.Contains(t, searchSQL, "JOIN hole h ON h.id = f.hole_id")
+	assert.Contains(t, searchSQL, "f.`like` >= 3")
+	assert.Contains(t, searchSQL, "CONCAT('bootstrap-search-division-', h.division_id)")
+
+	homeSQL := bootstrapHomeSamplesSQL()
+	assert.Contains(t, homeSQL, "FROM hole h")
+	assert.Contains(t, homeSQL, "h.reply >= 5")
+	assert.Contains(t, homeSQL, "CONCAT('bootstrap-home-division-', h.division_id)")
+	assert.Contains(t, homeSQL, "LEFT JOIN hole_feature hf")
+}
+
+func TestAssignBootstrapSearchRanksWithinGroups(t *testing.T) {
+	rows := []searchRow{
+		{RequestID: "a"},
+		{RequestID: "a"},
+		{RequestID: "b"},
+		{RequestID: "a"},
+	}
+
+	assignBootstrapSearchRanks(rows)
+
+	assert.Equal(t, 0, rows[0].BaseRank)
+	assert.Equal(t, 1, rows[1].BaseRank)
+	assert.Equal(t, 0, rows[2].BaseRank)
+	assert.Equal(t, 2, rows[3].BaseRank)
+	assert.Equal(t, rows[3].BaseRank, rows[3].Position)
+}
+
 func TestSearchFeaturesIgnoreFutureFeatureSnapshot(t *testing.T) {
 	sampleAt := time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
 	futureFeatureAt := sampleAt.Add(time.Minute)

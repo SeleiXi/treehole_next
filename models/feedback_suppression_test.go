@@ -75,5 +75,22 @@ func TestApplySearchFeedbackQuerySortDemotesOpenedAndFiltersHardNegatives(t *tes
 		Order("id DESC").
 		Find(&floors).Error
 	assert.NoError(t, err)
+	floors = applySearchFeedbackFatigue(db, nil, floors, 2, now)
 	assert.Equal(t, []int{1, 3}, []int{floors[0].HoleID, floors[1].HoleID})
+}
+
+func TestHoleFeedbackSuppressionHardOnlyDropsSoftFatigue(t *testing.T) {
+	suppression := HoleFeedbackSuppression{
+		HardIDs: []int{1},
+		SoftIDs: []int{2},
+		Hard:    map[int]bool{1: true},
+		Soft:    map[int]bool{2: true},
+	}
+
+	result := suppression.HardOnly()
+
+	assert.Equal(t, []int{1}, result.HardIDs)
+	assert.True(t, result.Hard[1])
+	assert.Empty(t, result.SoftIDs)
+	assert.Empty(t, result.Soft)
 }

@@ -471,7 +471,11 @@ func recentSuppressedHoleIDs(tx *gorm.DB, c *fiber.Ctx, strategy string) HoleFee
 	if strategy != ranking.StrategyHot && strategy != ranking.StrategyRecommend {
 		return HoleFeedbackSuppression{}
 	}
-	return LoadHoleFeedbackSuppression(tx, c, nil, time.Now())
+	suppression := LoadHoleFeedbackSuppression(tx, c, nil, time.Now())
+	if strategy == ranking.StrategyHot {
+		return suppression.HardOnly()
+	}
+	return suppression
 }
 
 /************************
